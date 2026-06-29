@@ -68,6 +68,7 @@ android {
 
     packagingOptions {
         pickFirst 'lib/**/libomp.so'
+        pickFirst 'lib/**/libsd_jni.so'
     }
 
     dependencies {

@@ -23,6 +23,7 @@ import '../services/local_image_service.dart';
 import '../services/app_log_service.dart';
 import '../services/image_generation_notification_service.dart';
 import '../services/document_extractor_service.dart';
+import '../services/tool_calling_service.dart';
 import '../utils/thought_parser.dart';
 
 const int _visionImageMaxSide = 768;
@@ -33,7 +34,9 @@ Uint8List? _resizeVisionImageBytes(Map<String, dynamic> args) {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) return null;
 
-  final longestSide = decoded.width > decoded.height ? decoded.width : decoded.height;
+  final longestSide = decoded.width > decoded.height
+      ? decoded.width
+      : decoded.height;
   if (longestSide <= _visionImageMaxSide) {
     return bytes;
   }
@@ -246,40 +249,61 @@ class ChatController extends GetxController {
   void _checkVisionSupport() {
     final s = Get.find<SettingsController>();
     if (s.inferenceMode.value != 'cloud') return;
-    
+
     final provider = s.cloudProvider.value;
     String modelName = '';
     switch (provider) {
-      case 'anthropic': modelName = s.anthropicModel.value; break;
-      case 'google': modelName = s.googleModel.value; break;
-      case 'kimi': modelName = s.kimiModel.value; break;
-      case 'stability': modelName = s.stabilityModel.value; break;
-      case 'nvidia': modelName = s.nvidiaModel.value; break;
-      case 'openrouter': modelName = s.openRouterModel.value; break;
-      case 'deepseek': modelName = s.deepSeekModel.value; break;
-      case 'custom': modelName = s.customCloudModel.value; break;
-      default: modelName = s.openaiModel.value; break;
+      case 'anthropic':
+        modelName = s.anthropicModel.value;
+        break;
+      case 'google':
+        modelName = s.googleModel.value;
+        break;
+      case 'kimi':
+        modelName = s.kimiModel.value;
+        break;
+      case 'stability':
+        modelName = s.stabilityModel.value;
+        break;
+      case 'nvidia':
+        modelName = s.nvidiaModel.value;
+        break;
+      case 'openrouter':
+        modelName = s.openRouterModel.value;
+        break;
+      case 'deepseek':
+        modelName = s.deepSeekModel.value;
+        break;
+      case 'custom':
+        modelName = s.customCloudModel.value;
+        break;
+      default:
+        modelName = s.openaiModel.value;
+        break;
     }
-    
+
     final model = modelName.toLowerCase();
-    
+
     // Known vision keywords in cloud model names
-    final isVision = model.contains('vision') || 
-                     model.contains('-vl') || 
-                     model.contains('gpt-4o') || 
-                     model.contains('claude-3') || 
-                     model.contains('gemini') || 
-                     model.contains('pixtral') || 
-                     model.contains('llava') ||
-                     model.contains('omni');
-                     
+    final isVision =
+        model.contains('vision') ||
+        model.contains('-vl') ||
+        model.contains('gpt-4o') ||
+        model.contains('claude-3') ||
+        model.contains('gemini') ||
+        model.contains('pixtral') ||
+        model.contains('llava') ||
+        model.contains('omni');
+
     if (!isVision) {
       Get.snackbar(
         'Warning: Text-Only Model',
         'The selected model ($modelName) might not support images. If you get an error, switch to a vision model (like Gemini, GPT-4o, or Claude 3).',
         snackPosition: SnackPosition.TOP,
         duration: const Duration(seconds: 6),
-        backgroundColor: const Color(0xFFFF9500).withValues(alpha: 0.95), // Warning Orange
+        backgroundColor: const Color(
+          0xFFFF9500,
+        ).withValues(alpha: 0.95), // Warning Orange
         colorText: Colors.white,
         margin: const EdgeInsets.all(12),
       );
@@ -318,7 +342,7 @@ class ChatController extends GetxController {
           'java',
           'js',
           'ts',
-          'py'
+          'py',
         ],
         withData: kIsWeb,
       );
@@ -338,7 +362,8 @@ class ChatController extends GetxController {
       }
 
       if (fileType == 'image') {
-        final bytes = file.bytes ??
+        final bytes =
+            file.bytes ??
             (file.path != null ? await File(file.path!).readAsBytes() : null);
         if (bytes == null) return;
         final optimizedPath = await _prepareVisionImagePath(
@@ -385,11 +410,13 @@ class ChatController extends GetxController {
               'Document extraction failed',
               details: e,
             );
-            selectedFileContent.value = '[Could not extract text from ${selectedFileName.value}: $e]';
+            selectedFileContent.value =
+                '[Could not extract text from ${selectedFileName.value}: $e]';
           }
         }
       } else if (fileType == 'text') {
-        final bytes = file.bytes ??
+        final bytes =
+            file.bytes ??
             (file.path != null ? await File(file.path!).readAsBytes() : null);
         if (bytes == null) return;
         selectedFileSize.value = file.size > 0 ? file.size : bytes.length;
@@ -402,8 +429,11 @@ class ChatController extends GetxController {
       }
     } catch (e) {
       Get.find<AppLogService>().warning('File attachment failed', details: e);
-      Get.snackbar('File not attached', '$e',
-          snackPosition: SnackPosition.BOTTOM);
+      Get.snackbar(
+        'File not attached',
+        '$e',
+        snackPosition: SnackPosition.BOTTOM,
+      );
     }
   }
 
@@ -461,8 +491,9 @@ class ChatController extends GetxController {
     final fileSize = selectedFileSize.value;
     final imagePath = selectedImagePath.value;
     final imageBase64 = selectedImageBase64.value;
-    final visibleText =
-        text.isEmpty ? _defaultAttachmentPrompt(fileType) : text;
+    final visibleText = text.isEmpty
+        ? _defaultAttachmentPrompt(fileType)
+        : text;
     final effectiveText = (fileContent != null && fileContent.trim().isNotEmpty)
         ? '$visibleText\n\nAttached file: $fileName\n```text\n$fileContent\n```'
         : visibleText;
@@ -498,7 +529,7 @@ class ChatController extends GetxController {
     messages.add(userMsg);
     _hive.saveMessage(userMsg.id, userMsg.toMap());
 
-    // Clear input preview UI state — but KEEP the physical file on disk 
+    // Clear input preview UI state — but KEEP the physical file on disk
     // because the native inference engine needs to read it during generation.
     textController.clear();
     inputText.value = '';
@@ -511,8 +542,9 @@ class ChatController extends GetxController {
       final title = visibleText.length > 40
           ? '${visibleText.substring(0, 40)}...'
           : visibleText;
-      final session =
-          sessions.firstWhere((s) => s.id == currentSessionId.value);
+      final session = sessions.firstWhere(
+        (s) => s.id == currentSessionId.value,
+      );
       final updated = session.copyWith(title: title, lastMessage: visibleText);
       _hive.saveSession(updated.id, updated.toMap());
       final idx = sessions.indexWhere((s) => s.id == updated.id);
@@ -523,8 +555,9 @@ class ChatController extends GetxController {
     final generationId = ++_generationSerial;
     isLoading.value = true;
     isStreaming.value = true;
-    streamingAttachmentType.value =
-        (imagePath != null || fileType == 'audio') ? fileType : null;
+    streamingAttachmentType.value = (imagePath != null || fileType == 'audio')
+        ? fileType
+        : null;
     streamingResponse.value = '';
     _followStreaming = true;
     _scrollToBottom(force: true);
@@ -542,12 +575,14 @@ class ChatController extends GetxController {
             !parts.isThinking &&
             thoughtStartedAt != null &&
             thoughtDurationSeconds == null) {
-          thoughtDurationSeconds =
-              DateTime.now().difference(thoughtStartedAt!).inSeconds;
+          thoughtDurationSeconds = DateTime.now()
+              .difference(thoughtStartedAt!)
+              .inSeconds;
         }
       }
 
-      final inferenceMode = _hive.getSetting(
+      final inferenceMode =
+          _hive.getSetting(
             AppConstants.keyInferenceMode,
             defaultValue: 'local',
           ) ??
@@ -558,12 +593,14 @@ class ChatController extends GetxController {
       // Build conversation history
       final history = messages
           .where((m) => m.role == 'user' || m.role == 'assistant')
-          .map((m) => {
-                'role': m.role,
-                'content': m.role == 'assistant'
-                    ? splitThoughtTags(m.content).answer
-                    : m.content,
-              })
+          .map(
+            (m) => {
+              'role': m.role,
+              'content': m.role == 'assistant'
+                  ? splitThoughtTags(m.content).answer
+                  : m.content,
+            },
+          )
           .toList();
 
       if (inferenceMode == 'local') {
@@ -574,18 +611,22 @@ class ChatController extends GetxController {
           final settings = Get.find<SettingsController>();
           final imageNotifications =
               Get.find<ImageGenerationNotificationService>();
-          final steps = _hive.getSetting<int>(AppConstants.keyImageSteps,
-              defaultValue: AppConstants.defaultImageSteps) ??
+          final steps =
+              _hive.getSetting<int>(
+                AppConstants.keyImageSteps,
+                defaultValue: AppConstants.defaultImageSteps,
+              ) ??
               AppConstants.defaultImageSteps;
           final sizeSetting = settings.imageGenSize.value;
-          final sizeLabel =
-              sizeSetting == 0 ? 'Auto size' : '${sizeSetting}x$sizeSetting';
+          final sizeLabel = sizeSetting == 0
+              ? 'Auto size'
+              : '${sizeSetting}x$sizeSetting';
           final backendLabel = localImage.currentBackend.value == Backend.cpu
               ? 'CPU'
               : localImage.currentBackend.value.displayName
-                  .split(' ')
-                  .first
-                  .toUpperCase();
+                    .split(' ')
+                    .first
+                    .toUpperCase();
           imageGenStep.value = 0;
           imageGenTotal.value = steps;
           imageGenEstimatedSecs.value = 0;
@@ -601,18 +642,24 @@ class ChatController extends GetxController {
           final pngBytes = await localImage.generateImage(
             prompt: text,
             onProgress: (step, total) {
-              print('[ChatController] Progress callback: step=$step, total=$total');
+              print(
+                '[ChatController] Progress callback: step=$step, total=$total',
+              );
               imageGenStep.value = step;
               imageGenTotal.value = total;
               if (step >= total && total > 0) {
                 imageGenDecoding.value = true;
-                print('[ChatController] Sampling complete, VAE decode in progress');
+                print(
+                  '[ChatController] Sampling complete, VAE decode in progress',
+                );
                 imageNotifications.decoding();
               }
               if (step > 0 && total > 0 && step < total) {
                 final start = imageGenStartTime.value;
                 if (start != null) {
-                  final elapsed = DateTime.now().difference(start).inMilliseconds;
+                  final elapsed = DateTime.now()
+                      .difference(start)
+                      .inMilliseconds;
                   final avgMsPerStep = elapsed / step;
                   final remainingSteps = total - step;
                   imageGenEstimatedSecs.value =
@@ -626,17 +673,21 @@ class ChatController extends GetxController {
                 elapsedSeconds: imageGenStartTime.value == null
                     ? 0
                     : DateTime.now()
-                        .difference(imageGenStartTime.value!)
-                        .inSeconds,
+                          .difference(imageGenStartTime.value!)
+                          .inSeconds,
               );
               _scrollToBottom();
             },
           );
           // Calculate total generation time
           final genDurationMs = imageGenStartTime.value != null
-              ? DateTime.now().difference(imageGenStartTime.value!).inMilliseconds
+              ? DateTime.now()
+                    .difference(imageGenStartTime.value!)
+                    .inMilliseconds
               : null;
-          print('[ChatController] generateImage returned, bytes=${pngBytes?.length}, duration=${genDurationMs}ms');
+          print(
+            '[ChatController] generateImage returned, bytes=${pngBytes?.length}, duration=${genDurationMs}ms',
+          );
 
           if (pngBytes != null) {
             await imageNotifications.complete(durationMs: genDurationMs ?? 0);
@@ -684,8 +735,9 @@ class ChatController extends GetxController {
       }
 
       if (thoughtStartedAt != null && thoughtDurationSeconds == null) {
-        thoughtDurationSeconds =
-            DateTime.now().difference(thoughtStartedAt!).inSeconds;
+        thoughtDurationSeconds = DateTime.now()
+            .difference(thoughtStartedAt!)
+            .inSeconds;
       }
 
       if (generationId != _generationSerial) return;
@@ -705,6 +757,13 @@ class ChatController extends GetxController {
       if (rawResponse.startsWith('[IMAGE_BASE64]')) {
         outImageBase64 = rawResponse.substring('[IMAGE_BASE64]'.length);
         rawResponse = 'Here is your generated image:';
+      } else {
+        final toolResult = await Get.find<ToolCallingService>().handle(
+          splitThoughtTags(rawResponse).answer,
+        );
+        if (toolResult.toolWasCalled) {
+          rawResponse = toolResult.output;
+        }
       }
 
       // Calculate total generation time for image gen
@@ -728,8 +787,9 @@ class ChatController extends GetxController {
       imageGenStartTime.value = null;
 
       // Update session
-      final session =
-          sessions.firstWhereOrNull((s) => s.id == currentSessionId.value);
+      final session = sessions.firstWhereOrNull(
+        (s) => s.id == currentSessionId.value,
+      );
       if (session != null) {
         final updated = session.copyWith(lastMessage: aiMsg.content);
         _hive.saveSession(updated.id, updated.toMap());
@@ -808,8 +868,9 @@ class ChatController extends GetxController {
     messages.add(aiMsg);
     _hive.saveMessage(aiMsg.id, aiMsg.toMap());
 
-    final session =
-        sessions.firstWhereOrNull((s) => s.id == currentSessionId.value);
+    final session = sessions.firstWhereOrNull(
+      (s) => s.id == currentSessionId.value,
+    );
     if (session != null) {
       final updated = session.copyWith(lastMessage: aiMsg.content);
       _hive.saveSession(updated.id, updated.toMap());
@@ -867,9 +928,9 @@ class ChatController extends GetxController {
     final modelName = settings.inferenceMode.value == 'local'
         ? inference.loadedModelName.value
         : settings.selectedCloudModelName;
-    return settings.effectiveSystemPromptForModel(
-      modelName,
-    );
+    return settings.effectiveSystemPromptForModel(modelName) +
+        '\n\n' +
+        ToolCallingService.protocolPrompt;
   }
 
   String _attachmentTypeForExtension(String extension) {

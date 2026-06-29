@@ -65,7 +65,7 @@ class ChatView extends GetView<ChatController> {
                 itemCount: n + (streaming ? 1 : 0),
                 itemBuilder: (_, i) {
                   if (i == n && streaming)
-                    return Obx(() => _streamBubble(context, text, isDark));
+                    return _streamBubble(context, text, isDark);
                   return ChatBubble(message: controller.messages[i]);
                 },
               ),

@@ -947,6 +947,8 @@ class ChatController extends GetxController {
     final tools = Get.find<ToolCallingService>();
     var response = initialResponse;
     final toolHistory = List<Map<String, String>>.from(baseHistory);
+    final originalUserRequest = baseHistory
+        .lastWhereOrNull((message) => message['role'] == 'user')?['content'];
 
     for (var round = 0; round < _maxToolCallRounds; round++) {
       if (generationId != _generationSerial) return response;
@@ -973,8 +975,10 @@ class ChatController extends GetxController {
 
       streamingResponse.value = '';
       response = await _generateToolFollowUp(
-        prompt:
-            '$toolResult\n\nAnswer the user using this tool result. If you need another tool, return only the next tool_call JSON object.',
+        prompt: _toolFollowUpPrompt(
+          originalUserRequest: originalUserRequest,
+          toolResult: toolResult,
+        ),
         history: toolHistory,
         inferenceMode: inferenceMode,
         onToken: onToken,
@@ -991,10 +995,11 @@ class ChatController extends GetxController {
     required void Function(String token) onToken,
   }) async {
     if (inferenceMode == 'local') {
-      return Get.find<InferenceService>().generate(
+      final inference = Get.find<InferenceService>();
+      await inference.resetConversation();
+      return inference.generate(
         prompt: prompt,
         systemPrompt: _effectiveSystemPrompt,
-        conversationHistory: history,
         source: 'chat',
         onToken: onToken,
       );
@@ -1007,6 +1012,18 @@ class ChatController extends GetxController {
       ],
       onToken: onToken,
     );
+  }
+
+  String _toolFollowUpPrompt({
+    required String? originalUserRequest,
+    required String toolResult,
+  }) {
+    final request = originalUserRequest?.trim();
+    if (request == null || request.isEmpty) {
+      return '$toolResult\n\nAnswer the user using this tool result. If you need another tool, return only the next tool_call JSON object.';
+    }
+
+    return 'Original user request:\n$request\n\n$toolResult\n\nAnswer the original user request using this tool result. If you need another tool, return only the next tool_call JSON object.';
   }
 
   String _attachmentTypeForExtension(String extension) {

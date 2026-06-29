@@ -928,9 +928,7 @@ class ChatController extends GetxController {
     final modelName = settings.inferenceMode.value == 'local'
         ? inference.loadedModelName.value
         : settings.selectedCloudModelName;
-    return settings.effectiveSystemPromptForModel(modelName) +
-        '\n\n' +
-        ToolCallingService.protocolPrompt;
+    return '${settings.effectiveSystemPromptForModel(modelName)}\n\n${ToolCallingService.protocolPrompt}';
   }
 
   String _attachmentTypeForExtension(String extension) {

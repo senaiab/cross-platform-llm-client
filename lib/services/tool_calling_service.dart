@@ -20,19 +20,23 @@ Available tools:
 - settings_summary: returns non-secret inference settings.
 - calculator: evaluates simple arithmetic. Arguments: {"expression":"2 + 2 * 3"}.
 
+When a tool result is provided, use it to answer the user's request. Do not
+invent tool results. If another tool is needed, return another tool_call JSON
+object.
+
 Do not wrap tool calls in Markdown. If no tool is needed, answer normally.''';
 
   final HiveService _hive = Get.find<HiveService>();
 
   Future<ToolHandlingResult> handle(String rawOutput) async {
-    final request = _parseToolCall(rawOutput);
+    final request = parseToolCall(rawOutput);
     if (request == null) {
       return ToolHandlingResult(output: rawOutput, toolWasCalled: false);
     }
 
     try {
       final result = await callTool(request.name, request.arguments);
-      final rendered = _renderToolResult(request, result);
+      final rendered = renderToolResultForChat(request, result);
       return ToolHandlingResult(output: rendered, toolWasCalled: true);
     } catch (e) {
       Get.find<AppLogService>().warning(
@@ -64,7 +68,7 @@ Do not wrap tool calls in Markdown. If no tool is needed, answer normally.''';
     }
   }
 
-  ToolCallRequest? _parseToolCall(String rawOutput) {
+  ToolCallRequest? parseToolCall(String rawOutput) {
     final trimmed = rawOutput.trim();
     final jsonText = _extractJsonObject(trimmed);
     if (jsonText == null) return null;
@@ -148,7 +152,15 @@ Do not wrap tool calls in Markdown. If no tool is needed, answer normally.''';
     return {'expression': expression, 'result': value};
   }
 
-  String _renderToolResult(
+  String renderToolResultForModel(
+    ToolCallRequest request,
+    Map<String, dynamic> result,
+  ) {
+    const encoder = JsonEncoder.withIndent('  ');
+    return 'Tool result for "${request.name}":\n${encoder.convert(result)}';
+  }
+
+  String renderToolResultForChat(
     ToolCallRequest request,
     Map<String, dynamic> result,
   ) {

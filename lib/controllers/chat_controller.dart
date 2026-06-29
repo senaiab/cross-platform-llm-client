@@ -28,6 +28,7 @@ import '../utils/thought_parser.dart';
 
 const int _visionImageMaxSide = 768;
 const int _visionImageJpegQuality = 72;
+const int _maxToolCallRounds = 2;
 
 Uint8List? _resizeVisionImageBytes(Map<String, dynamic> args) {
   final bytes = args['bytes'] as Uint8List;
@@ -758,12 +759,17 @@ class ChatController extends GetxController {
         outImageBase64 = rawResponse.substring('[IMAGE_BASE64]'.length);
         rawResponse = 'Here is your generated image:';
       } else {
-        final toolResult = await Get.find<ToolCallingService>().handle(
-          splitThoughtTags(rawResponse).answer,
+        rawResponse = await _resolveToolCalls(
+          initialResponse: rawResponse,
+          baseHistory: history,
+          inferenceMode: inferenceMode,
+          generationId: generationId,
+          onToken: (token) {
+            streamingResponse.value += token;
+            trackThoughtTiming();
+            _scrollToBottom();
+          },
         );
-        if (toolResult.toolWasCalled) {
-          rawResponse = toolResult.output;
-        }
       }
 
       // Calculate total generation time for image gen
@@ -929,6 +935,78 @@ class ChatController extends GetxController {
         ? inference.loadedModelName.value
         : settings.selectedCloudModelName;
     return '${settings.effectiveSystemPromptForModel(modelName)}\n\n${ToolCallingService.protocolPrompt}';
+  }
+
+  Future<String> _resolveToolCalls({
+    required String initialResponse,
+    required List<Map<String, String>> baseHistory,
+    required String inferenceMode,
+    required int generationId,
+    required void Function(String token) onToken,
+  }) async {
+    final tools = Get.find<ToolCallingService>();
+    var response = initialResponse;
+    final toolHistory = List<Map<String, String>>.from(baseHistory);
+
+    for (var round = 0; round < _maxToolCallRounds; round++) {
+      if (generationId != _generationSerial) return response;
+
+      final answer = splitThoughtTags(response).answer;
+      final request = tools.parseToolCall(answer);
+      if (request == null) return response;
+
+      Map<String, dynamic> result;
+      try {
+        result = await tools.callTool(request.name, request.arguments);
+      } catch (e) {
+        Get.find<AppLogService>().warning(
+          'Tool call failed',
+          details: 'tool=${request.name}, error=$e',
+        );
+        result = {'error': e.toString()};
+      }
+
+      final toolResult = tools.renderToolResultForModel(request, result);
+      toolHistory
+        ..add({'role': 'assistant', 'content': answer})
+        ..add({'role': 'user', 'content': toolResult});
+
+      streamingResponse.value = '';
+      response = await _generateToolFollowUp(
+        prompt:
+            '$toolResult\n\nAnswer the user using this tool result. If you need another tool, return only the next tool_call JSON object.',
+        history: toolHistory,
+        inferenceMode: inferenceMode,
+        onToken: onToken,
+      );
+    }
+
+    return response;
+  }
+
+  Future<String> _generateToolFollowUp({
+    required String prompt,
+    required List<Map<String, String>> history,
+    required String inferenceMode,
+    required void Function(String token) onToken,
+  }) async {
+    if (inferenceMode == 'local') {
+      return Get.find<InferenceService>().generate(
+        prompt: prompt,
+        systemPrompt: _effectiveSystemPrompt,
+        conversationHistory: history,
+        source: 'chat',
+        onToken: onToken,
+      );
+    }
+
+    return Get.find<CloudService>().sendMessage(
+      messages: [
+        {'role': 'system', 'content': _effectiveSystemPrompt},
+        ...history,
+      ],
+      onToken: onToken,
+    );
   }
 
   String _attachmentTypeForExtension(String extension) {

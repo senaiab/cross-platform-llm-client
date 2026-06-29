@@ -947,8 +947,7 @@ class ChatController extends GetxController {
     final tools = Get.find<ToolCallingService>();
     var response = initialResponse;
     final toolHistory = List<Map<String, String>>.from(baseHistory);
-    final originalUserRequest = baseHistory
-        .lastWhereOrNull((message) => message['role'] == 'user')?['content'];
+    final originalUserRequest = _lastUserContent(baseHistory);
 
     for (var round = 0; round < _maxToolCallRounds; round++) {
       if (generationId != _generationSerial) return response;
@@ -1024,6 +1023,13 @@ class ChatController extends GetxController {
     }
 
     return 'Original user request:\n$request\n\n$toolResult\n\nAnswer the original user request using this tool result. If you need another tool, return only the next tool_call JSON object.';
+  }
+
+  String? _lastUserContent(List<Map<String, String>> history) {
+    for (final message in history.reversed) {
+      if (message['role'] == 'user') return message['content'];
+    }
+    return null;
   }
 
   String _attachmentTypeForExtension(String extension) {

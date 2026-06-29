@@ -34,6 +34,11 @@ jobs:
       - name: Install Android NDK
         run: sdkmanager "ndk;28.2.13676358"
 
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
+          df -h
+
       - name: Resolve dependencies
         run: flutter pub get
 
@@ -41,7 +46,7 @@ jobs:
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
 
       - name: Build APKs
-        run: flutter build apk --release --split-per-abi
+        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

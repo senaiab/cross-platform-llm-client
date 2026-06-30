@@ -1,4 +1,7 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
+
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import '../core/constants.dart';
@@ -8,9 +11,12 @@ import 'app_log_service.dart';
 /// Cloud API service supporting native and OpenAI-compatible providers.
 class CloudService extends GetxService {
   final HiveService _hive = Get.find<HiveService>();
+  static const Duration _requestTimeout = Duration(minutes: 2);
+  static const int _transientRetryCount = 2;
 
   String get _provider =>
-      _hive.getSetting(AppConstants.keyCloudProvider, defaultValue: 'openrouter') ??
+      _hive.getSetting(AppConstants.keyCloudProvider,
+          defaultValue: 'openrouter') ??
       'openrouter';
 
   String get _apiKey {
@@ -92,18 +98,55 @@ class CloudService extends GetxService {
 
     try {
       if (onToken != null && _supportsStreaming) {
-        return await _streamOpenAICompatible(
-          endpoint: _openAICompatibleEndpoint,
-          providerLabel: _providerLabel,
+        final streamed = await _sendWithTransientRetries(
+          () => _streamOpenAICompatible(
+            endpoint: _openAICompatibleEndpoint,
+            providerLabel: _providerLabel,
+            messages: messages,
+            imageBase64: imageBase64,
+            temperature: temperature,
+            maxTokens: maxTokens,
+            extraHeaders: _openAICompatibleExtraHeaders,
+            onToken: onToken,
+          ),
+        );
+        if (streamed.isNotEmpty) return streamed;
+
+        return await _sendWithoutStreaming(
           messages: messages,
           imageBase64: imageBase64,
           temperature: temperature,
           maxTokens: maxTokens,
-          extraHeaders: _openAICompatibleExtraHeaders,
-          onToken: onToken,
         );
       }
 
+      return await _sendWithoutStreaming(
+        messages: messages,
+        imageBase64: imageBase64,
+        temperature: temperature,
+        maxTokens: maxTokens,
+      );
+    } catch (e) {
+      Get.find<AppLogService>().error('Cloud API request failed', details: e);
+      return 'ERROR: Cloud API request failed — $e';
+    }
+  }
+
+  bool get _supportsStreaming =>
+      _provider == 'openai' ||
+      _provider == 'nvidia' ||
+      _provider == 'openrouter' ||
+      _provider == 'deepseek' ||
+      _provider == 'custom' ||
+      _provider == 'kimi';
+
+  Future<String> _sendWithoutStreaming({
+    required List<Map<String, String>> messages,
+    required String? imageBase64,
+    required double? temperature,
+    required int? maxTokens,
+  }) {
+    return _sendWithTransientRetries(() async {
       switch (_provider) {
         case 'anthropic':
           return await _sendAnthropic(
@@ -131,19 +174,39 @@ class CloudService extends GetxService {
           return await _sendOpenAI(
               messages, imageBase64, temperature, maxTokens);
       }
-    } catch (e) {
-      Get.find<AppLogService>().error('Cloud API request failed', details: e);
-      return 'ERROR: Cloud API request failed — $e';
-    }
+    });
   }
 
-  bool get _supportsStreaming =>
-      _provider == 'openai' ||
-      _provider == 'nvidia' ||
-      _provider == 'openrouter' ||
-      _provider == 'deepseek' ||
-      _provider == 'custom' ||
-      _provider == 'kimi';
+  Future<String> _sendWithTransientRetries(
+    Future<String> Function() send,
+  ) async {
+    Object? lastError;
+    for (var attempt = 0; attempt <= _transientRetryCount; attempt++) {
+      try {
+        return await send().timeout(_requestTimeout);
+      } catch (e) {
+        lastError = e;
+        if (!_isTransientNetworkError(e) || attempt == _transientRetryCount) {
+          rethrow;
+        }
+        await Future<void>.delayed(Duration(milliseconds: 500 * (attempt + 1)));
+      }
+    }
+    throw StateError('Cloud API request failed after retries: $lastError');
+  }
+
+  bool _isTransientNetworkError(Object error) {
+    if (error is TimeoutException || error is SocketException) return true;
+    if (error is http.ClientException) {
+      final message = error.message.toLowerCase();
+      return message.contains('connection closed') ||
+          message.contains('connection reset') ||
+          message.contains('connection terminated') ||
+          message.contains('failed host lookup') ||
+          message.contains('timed out');
+    }
+    return false;
+  }
 
   String get _openAICompatibleEndpoint {
     switch (_provider) {
@@ -224,19 +287,21 @@ class CloudService extends GetxService {
       }
     }
 
-    final response = await http.post(
-      Uri.parse(AppConstants.openaiEndpoint),
-      headers: {
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': _model,
-        'messages': apiMessages,
-        'temperature': temperature ?? AppConstants.defaultTemperature,
-        'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse(AppConstants.openaiEndpoint),
+          headers: {
+            'Authorization': 'Bearer $_apiKey',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': _model,
+            'messages': apiMessages,
+            'temperature': temperature ?? AppConstants.defaultTemperature,
+            'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
+          }),
+        )
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       return 'ERROR: OpenAI returned ${response.statusCode} — ${response.body}';
@@ -297,15 +362,17 @@ class CloudService extends GetxService {
     };
     if (systemMsg != null) body['system'] = systemMsg;
 
-    final response = await http.post(
-      Uri.parse(AppConstants.anthropicEndpoint),
-      headers: {
-        'x-api-key': _apiKey,
-        'anthropic-version': '2023-06-01',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode(body),
-    );
+    final response = await http
+        .post(
+          Uri.parse(AppConstants.anthropicEndpoint),
+          headers: {
+            'x-api-key': _apiKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       return 'ERROR: Anthropic returned ${response.statusCode} — ${response.body}';
@@ -344,19 +411,21 @@ class CloudService extends GetxService {
     final url =
         '${AppConstants.googleEndpoint}/$_model:generateContent?key=$_apiKey';
 
-    final response = await http.post(
-      Uri.parse(url),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'contents': [
-          {'parts': parts}
-        ],
-        'generationConfig': {
-          'temperature': temperature ?? AppConstants.defaultTemperature,
-          'maxOutputTokens': maxTokens ?? AppConstants.defaultMaxTokens,
-        },
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse(url),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'contents': [
+              {'parts': parts}
+            ],
+            'generationConfig': {
+              'temperature': temperature ?? AppConstants.defaultTemperature,
+              'maxOutputTokens': maxTokens ?? AppConstants.defaultMaxTokens,
+            },
+          }),
+        )
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       return 'ERROR: Google returned ${response.statusCode} — ${response.body}';
@@ -385,19 +454,21 @@ class CloudService extends GetxService {
       apiMessages.add({'role': msg['role'], 'content': msg['content']});
     }
 
-    final response = await http.post(
-      Uri.parse(AppConstants.kimiEndpoint),
-      headers: {
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': _model,
-        'messages': apiMessages,
-        'temperature': temperature ?? AppConstants.defaultTemperature,
-        'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse(AppConstants.kimiEndpoint),
+          headers: {
+            'Authorization': 'Bearer $_apiKey',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': _model,
+            'messages': apiMessages,
+            'temperature': temperature ?? AppConstants.defaultTemperature,
+            'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
+          }),
+        )
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       return 'ERROR: Kimi returned ${response.statusCode} — ${response.body}';
@@ -434,19 +505,21 @@ class CloudService extends GetxService {
       }
     }
 
-    final response = await http.post(
-      Uri.parse('${AppConstants.nvidiaEndpoint}/chat/completions'),
-      headers: {
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': _model,
-        'messages': apiMessages,
-        'temperature': temperature ?? AppConstants.defaultTemperature,
-        'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse('${AppConstants.nvidiaEndpoint}/chat/completions'),
+          headers: {
+            'Authorization': 'Bearer $_apiKey',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'model': _model,
+            'messages': apiMessages,
+            'temperature': temperature ?? AppConstants.defaultTemperature,
+            'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
+          }),
+        )
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       return 'ERROR: NVIDIA NIM returned ${response.statusCode} — ${response.body}';
@@ -526,20 +599,22 @@ class CloudService extends GetxService {
 
     apiMessages.addAll(_buildOpenAICompatibleMessages(messages, imageBase64));
 
-    final response = await http.post(
-      Uri.parse(endpoint),
-      headers: {
-        'Authorization': 'Bearer $_apiKey',
-        'Content-Type': 'application/json',
-        ...extraHeaders,
-      },
-      body: jsonEncode({
-        'model': _model,
-        'messages': apiMessages,
-        'temperature': temperature ?? AppConstants.defaultTemperature,
-        'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
-      }),
-    );
+    final response = await http
+        .post(
+          Uri.parse(endpoint),
+          headers: {
+            'Authorization': 'Bearer $_apiKey',
+            'Content-Type': 'application/json',
+            ...extraHeaders,
+          },
+          body: jsonEncode({
+            'model': _model,
+            'messages': apiMessages,
+            'temperature': temperature ?? AppConstants.defaultTemperature,
+            'max_tokens': maxTokens ?? AppConstants.defaultMaxTokens,
+          }),
+        )
+        .timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       return 'ERROR: $providerLabel returned ${response.statusCode} — ${response.body}';
@@ -576,7 +651,7 @@ class CloudService extends GetxService {
 
     final client = http.Client();
     try {
-      final response = await client.send(request);
+      final response = await client.send(request).timeout(_requestTimeout);
       if (response.statusCode != 200) {
         final body = await response.stream.bytesToString();
         return 'ERROR: $providerLabel returned ${response.statusCode} — $body';
@@ -587,27 +662,41 @@ class CloudService extends GetxService {
           .transform(utf8.decoder)
           .transform(const LineSplitter());
 
-      await for (final line in lines) {
-        final trimmed = line.trim();
-        if (trimmed.isEmpty || !trimmed.startsWith('data:')) continue;
+      try {
+        await for (final line in lines) {
+          final trimmed = line.trim();
+          if (trimmed.isEmpty || !trimmed.startsWith('data:')) continue;
 
-        final payload = trimmed.substring(5).trim();
-        if (payload == '[DONE]') break;
+          final payload = trimmed.substring(5).trim();
+          if (payload == '[DONE]') break;
 
-        try {
-          final data = jsonDecode(payload);
-          final choice = (data['choices'] as List?)?.isNotEmpty == true
-              ? data['choices'][0] as Map
-              : null;
-          final delta = choice?['delta'] as Map?;
-          final token = delta?['content']?.toString();
-          if (token != null && token.isNotEmpty) {
-            buffer.write(token);
-            onToken(token);
+          try {
+            final data = jsonDecode(payload);
+            final choice = (data['choices'] as List?)?.isNotEmpty == true
+                ? data['choices'][0] as Map
+                : null;
+            final delta = choice?['delta'] as Map?;
+            final token = delta?['content']?.toString();
+            if (token != null && token.isNotEmpty) {
+              buffer.write(token);
+              onToken(token);
+            }
+          } catch (_) {
+            // Ignore malformed keep-alive chunks and continue reading.
           }
-        } catch (_) {
-          // Ignore malformed keep-alive chunks and continue reading.
         }
+      } on http.ClientException catch (e) {
+        if (buffer.isEmpty || !_isTransientNetworkError(e)) rethrow;
+        Get.find<AppLogService>().warning(
+          '$providerLabel stream closed after partial response',
+          details: e,
+        );
+      } on SocketException catch (e) {
+        if (buffer.isEmpty) rethrow;
+        Get.find<AppLogService>().warning(
+          '$providerLabel stream socket closed after partial response',
+          details: e,
+        );
       }
 
       return buffer.toString();
@@ -669,8 +758,9 @@ class CloudService extends GetxService {
     request.fields['model'] = _model;
     request.fields['output_format'] = 'jpeg';
 
-    final response = await request.send();
-    final responseBody = await response.stream.bytesToString();
+    final response = await request.send().timeout(_requestTimeout);
+    final responseBody =
+        await response.stream.bytesToString().timeout(_requestTimeout);
 
     if (response.statusCode != 200) {
       return 'ERROR: Stability AI returned ${response.statusCode} — $responseBody';

@@ -1,5 +1,5 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/chat_message.dart';
@@ -55,7 +55,8 @@ class ChatBubble extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 10),
                   child: GestureDetector(
-                    onTap: () => ImageViewer.show(context, message.imageBase64!),
+                    onTap: () =>
+                        ImageViewer.show(context, message.imageBase64!),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(14),
                       child: Image.memory(
@@ -65,7 +66,6 @@ class ChatBubble extends StatelessWidget {
                         fit: BoxFit.cover,
                         gaplessPlayback: true,
                         errorBuilder: (_, __, ___) => Container(
-
                           height: 100,
                           decoration: BoxDecoration(
                             color: isDark
@@ -73,7 +73,9 @@ class ChatBubble extends StatelessWidget {
                                 : Colors.black.withValues(alpha: 0.05),
                             borderRadius: BorderRadius.circular(14),
                           ),
-                          child: const Center(child: Icon(Icons.broken_image_rounded, size: 28)),
+                          child: const Center(
+                              child:
+                                  Icon(Icons.broken_image_rounded, size: 28)),
                         ),
                       ),
                     ),
@@ -133,12 +135,15 @@ class ChatBubble extends StatelessWidget {
                           fontSize: 10,
                           color: isUser
                               ? Colors.white.withValues(alpha: 0.55)
-                              : Theme.of(context).hintColor.withValues(alpha: 0.5),
+                              : Theme.of(context)
+                                  .hintColor
+                                  .withValues(alpha: 0.5),
                           fontWeight: FontWeight.w500,
                         ),
                       ),
                     ),
-                  if (message.imageGenDurationMs != null && message.imageGenDurationMs! > 0)
+                  if (message.imageGenDurationMs != null &&
+                      message.imageGenDurationMs! > 0)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: Text(
@@ -147,7 +152,9 @@ class ChatBubble extends StatelessWidget {
                           fontSize: 10,
                           color: isUser
                               ? Colors.white.withValues(alpha: 0.55)
-                              : Theme.of(context).hintColor.withValues(alpha: 0.5),
+                              : Theme.of(context)
+                                  .hintColor
+                                  .withValues(alpha: 0.5),
                           fontWeight: FontWeight.w500,
                         ),
                       ),
@@ -162,6 +169,32 @@ class ChatBubble extends StatelessWidget {
                       fontWeight: FontWeight.w400,
                     ),
                   ),
+                  if (_copyText(isUser, visibleContent, answerContent)
+                      .isNotEmpty) ...[
+                    const SizedBox(width: 4),
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: IconButton(
+                        tooltip: 'Copy',
+                        padding: EdgeInsets.zero,
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _copyToClipboard(
+                          context,
+                          _copyText(isUser, visibleContent, answerContent),
+                        ),
+                        icon: Icon(
+                          Icons.copy_rounded,
+                          size: 14,
+                          color: isUser
+                              ? Colors.white.withValues(alpha: 0.62)
+                              : Theme.of(context)
+                                  .hintColor
+                                  .withValues(alpha: 0.62),
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -182,7 +215,8 @@ class ChatBubble extends StatelessWidget {
     final color = Theme.of(context).colorScheme.onSurface;
     final muted = Theme.of(context).hintColor;
     final base = GoogleFonts.inter(fontSize: 15, color: color, height: 1.5);
-    final codeBlockBg = isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA);
+    final codeBlockBg =
+        isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA);
 
     return MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
       p: base,
@@ -203,7 +237,9 @@ class ChatBubble extends StatelessWidget {
       blockquoteDecoration: BoxDecoration(
         border: Border(
           left: BorderSide(
-            color: isDark ? Colors.white.withValues(alpha: 0.15) : Colors.black.withValues(alpha: 0.15),
+            color: isDark
+                ? Colors.white.withValues(alpha: 0.15)
+                : Colors.black.withValues(alpha: 0.15),
             width: 3,
           ),
         ),
@@ -225,7 +261,8 @@ class ChatBubble extends StatelessWidget {
       code: GoogleFonts.firaCode(
         fontSize: 11,
         color: muted,
-        backgroundColor: isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA),
+        backgroundColor:
+            isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA),
       ),
       codeblockDecoration: BoxDecoration(
         color: isDark ? const Color(0xFF2C2C2E) : const Color(0xFFE5E5EA),
@@ -254,5 +291,23 @@ class ChatBubble extends StatelessWidget {
         .replaceAll('<|im_end|>', '')
         .replaceAll('<|end|>', '')
         .trim();
+  }
+
+  String _copyText(bool isUser, String visibleContent, String answerContent) {
+    return (isUser ? visibleContent : answerContent).trim();
+  }
+
+  Future<void> _copyToClipboard(BuildContext context, String text) async {
+    if (text.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Copied chat message'),
+          duration: Duration(seconds: 1),
+        ),
+      );
   }
 }

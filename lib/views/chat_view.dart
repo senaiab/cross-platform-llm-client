@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -104,9 +105,8 @@ class ChatView extends GetView<ChatController> {
             final backend = localImage.currentBackend.value;
             final backendEmoji = backend == Backend.cpu ? '🖥' : '⚡';
             final backendName = backend.displayName.split(' ').first;
-            model = '$backendEmoji $backendName · ${localImage.loadedModelName.value
-                .replaceAll('.gguf', '')
-                .replaceAll('.GGUF', '')}';
+            model =
+                '$backendEmoji $backendName · ${localImage.loadedModelName.value.replaceAll('.gguf', '').replaceAll('.GGUF', '')}';
           } else {
             model = 'No model loaded';
           }
@@ -185,8 +185,7 @@ class ChatView extends GetView<ChatController> {
             onPressed: () => _showHistory(context)),
         IconButton(
             tooltip: 'New Chat',
-            icon: Icon(Icons.edit_note,
-                size: 22, color: _appleBlue(context)),
+            icon: Icon(Icons.edit_note, size: 22, color: _appleBlue(context)),
             onPressed: () => controller.createNewChat()),
       ],
     );
@@ -445,23 +444,60 @@ class ChatView extends GetView<ChatController> {
                 ]),
             ],
             if (hasText && !isImageGen)
-              Obx(() {
-                final inf = Get.find<InferenceService>();
-                if (inf.tokensPerSecond.value <= 0)
-                  return const SizedBox.shrink();
-                return Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                        '${inf.tokensPerSecond.value.toStringAsFixed(1)} tok/s',
-                        style: GoogleFonts.inter(
-                            fontSize: 10,
-                            color: _appleBlue(context),
-                            fontWeight: FontWeight.w500)));
-              }),
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Obx(() {
+                    final inf = Get.find<InferenceService>();
+                    if (inf.tokensPerSecond.value <= 0)
+                      return const SizedBox.shrink();
+                    return Padding(
+                        padding: const EdgeInsets.only(right: 4),
+                        child: Text(
+                            '${inf.tokensPerSecond.value.toStringAsFixed(1)} tok/s',
+                            style: GoogleFonts.inter(
+                                fontSize: 10,
+                                color: _appleBlue(context),
+                                fontWeight: FontWeight.w500)));
+                  }),
+                  SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: IconButton(
+                      tooltip: 'Copy',
+                      padding: EdgeInsets.zero,
+                      visualDensity: VisualDensity.compact,
+                      onPressed: _hasPrintable(answer)
+                          ? () => _copyToClipboard(context, answer.trim())
+                          : null,
+                      icon: Icon(
+                        Icons.copy_rounded,
+                        size: 14,
+                        color:
+                            Theme.of(context).hintColor.withValues(alpha: 0.62),
+                      ),
+                    ),
+                  ),
+                ]),
+              ),
           ]),
         ),
       ),
     );
+  }
+
+  Future<void> _copyToClipboard(BuildContext context, String text) async {
+    if (text.trim().isEmpty) return;
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Copied chat message'),
+          duration: Duration(seconds: 1),
+        ),
+      );
   }
 
   Widget _typingHint(BuildContext context, bool isDark,
@@ -607,26 +643,26 @@ class ChatView extends GetView<ChatController> {
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                      children: [
+                        children: [
                           _StepButton(
                             icon: Icons.remove_rounded,
                             enabled: steps > 1,
                             onTap: () => settings.setImageSteps(steps - 1),
                           ),
-                        Text(
+                          Text(
                             steps.toString(),
-                          style: GoogleFonts.inter(
+                            style: GoogleFonts.inter(
                               fontSize: 12,
                               color: isDark ? Colors.white : Colors.black,
-                            fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
-                        ),
                           _StepButton(
                             icon: Icons.add_rounded,
                             enabled: steps < 20,
                             onTap: () => settings.setImageSteps(steps + 1),
                           ),
-                      ],
+                        ],
                       ),
                     ),
                   ],
@@ -642,8 +678,7 @@ class ChatView extends GetView<ChatController> {
                 final isLocalVision = s.inferenceMode.value == 'local' &&
                     inf.loadedModelRuntime.value == 'litert' &&
                     inf.isVisionLoaded.value;
-                if (!isCloud && !isLocalVision)
-                  return const SizedBox.shrink();
+                if (!isCloud && !isLocalVision) return const SizedBox.shrink();
                 return _AttachButton(
                   isDark: isDark,
                   isCloud: isCloud,
@@ -726,12 +761,12 @@ class ChatView extends GetView<ChatController> {
                     curve: Curves.easeInOut,
                     width: 34,
                     height: 34,
-                    decoration: BoxDecoration(
-                        color: bgColor, shape: BoxShape.circle),
+                    decoration:
+                        BoxDecoration(color: bgColor, shape: BoxShape.circle),
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 180),
-                      transitionBuilder: (child, anim) => ScaleTransition(
-                          scale: anim, child: child),
+                      transitionBuilder: (child, anim) =>
+                          ScaleTransition(scale: anim, child: child),
                       child: Icon(iconData,
                           key: ValueKey(iconData),
                           color: (loading || listening || hasContent)
@@ -952,8 +987,7 @@ class _AttachButton extends StatelessWidget {
     final isDarkSheet = Theme.of(ctx).brightness == Brightness.dark;
     showModalBottomSheet(
       context: ctx,
-      backgroundColor:
-          isDarkSheet ? const Color(0xFF1C1C1E) : Colors.white,
+      backgroundColor: isDarkSheet ? const Color(0xFF1C1C1E) : Colors.white,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
       builder: (_) {
@@ -983,9 +1017,8 @@ class _AttachButton extends StatelessWidget {
                   child: Text('Cloud models support images & text files',
                       style: GoogleFonts.inter(
                           fontSize: 12,
-                          color: isDarkSheet
-                              ? Colors.white54
-                              : Colors.black45)),
+                          color:
+                              isDarkSheet ? Colors.white54 : Colors.black45)),
                 ),
               const SizedBox(height: 20),
               Row(children: [
@@ -1005,9 +1038,7 @@ class _AttachButton extends StatelessWidget {
                   icon: Icons.attach_file_rounded,
                   color: const Color(0xFF0A84FF),
                   label: 'File',
-                  sub: isCloud
-                      ? 'PDF, DOCX, text…'
-                      : 'PDF, DOCX, text…',
+                  sub: isCloud ? 'PDF, DOCX, text…' : 'PDF, DOCX, text…',
                   isDark: isDarkSheet,
                   onTap: () {
                     Navigator.pop(_);
@@ -1231,7 +1262,9 @@ class _ImageGenIndicatorState extends State<_ImageGenIndicator>
         border: Border.all(color: color.withValues(alpha: 0.3), width: 0.5),
       ),
       child: Text(
-        isCpu ? 'CPU · Slow' : backend.displayName.split(' ').first.toUpperCase(),
+        isCpu
+            ? 'CPU · Slow'
+            : backend.displayName.split(' ').first.toUpperCase(),
         style: GoogleFonts.inter(
           fontSize: 9,
           fontWeight: FontWeight.w600,
@@ -1346,7 +1379,8 @@ class _ImageGenIndicatorState extends State<_ImageGenIndicator>
                     _fmtEta(eta),
                     style: GoogleFonts.inter(
                       fontSize: 10,
-                      color: Theme.of(context).hintColor.withValues(alpha: 0.45),
+                      color:
+                          Theme.of(context).hintColor.withValues(alpha: 0.45),
                     ),
                   ),
                 ],
@@ -1355,7 +1389,8 @@ class _ImageGenIndicatorState extends State<_ImageGenIndicator>
                 GestureDetector(
                   onTap: widget.controller.stopGenerating,
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFF3B30).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),

@@ -28,7 +28,6 @@ import '../utils/thought_parser.dart';
 
 const int _visionImageMaxSide = 768;
 const int _visionImageJpegQuality = 72;
-const int _maxToolCallRounds = 2;
 
 Uint8List? _resizeVisionImageBytes(Map<String, dynamic> args) {
   final bytes = args['bytes'] as Uint8List;
@@ -948,8 +947,12 @@ class ChatController extends GetxController {
     var response = initialResponse;
     final toolHistory = List<Map<String, String>>.from(baseHistory);
     final originalUserRequest = _lastUserContent(baseHistory);
+    final toolMode = _toolModeForRequest(originalUserRequest);
+    final maxRounds = toolMode == ToolCallingMode.agent
+        ? ToolCallingService.agentMaxRounds
+        : ToolCallingService.planMaxRounds;
 
-    for (var round = 0; round < _maxToolCallRounds; round++) {
+    for (var round = 0; round < maxRounds; round++) {
       if (generationId != _generationSerial) return response;
 
       final answer = splitThoughtTags(response).answer;
@@ -958,7 +961,11 @@ class ChatController extends GetxController {
 
       Map<String, dynamic> result;
       try {
-        result = await tools.callTool(request.name, request.arguments);
+        result = await tools.callTool(
+          request.name,
+          request.arguments,
+          mode: toolMode,
+        );
       } catch (e) {
         Get.find<AppLogService>().warning(
           'Tool call failed',
@@ -985,6 +992,13 @@ class ChatController extends GetxController {
     }
 
     return response;
+  }
+
+  ToolCallingMode _toolModeForRequest(String? request) {
+    final text = request?.toLowerCase() ?? '';
+    if (text.contains('agent mode')) return ToolCallingMode.agent;
+    if (text.contains('build mode')) return ToolCallingMode.build;
+    return ToolCallingMode.plan;
   }
 
   Future<String> _generateToolFollowUp({
@@ -1019,10 +1033,10 @@ class ChatController extends GetxController {
   }) {
     final request = originalUserRequest?.trim();
     if (request == null || request.isEmpty) {
-      return '$toolResult\n\nAnswer the user using this tool result. If you need another tool, return only the next tool_call JSON object.';
+      return '$toolResult\n\nAnswer the user using this tool result. If you need another tool, return only the next [TOOL: name] JSON block.';
     }
 
-    return 'Original user request:\n$request\n\n$toolResult\n\nAnswer the original user request using this tool result. If you need another tool, return only the next tool_call JSON object.';
+    return 'Original user request:\n$request\n\n$toolResult\n\nAnswer the original user request using this tool result. If you need another tool, return only the next [TOOL: name] JSON block.';
   }
 
   String? _lastUserContent(List<Map<String, String>> history) {

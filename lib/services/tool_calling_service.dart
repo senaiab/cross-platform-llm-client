@@ -50,6 +50,8 @@ class ToolCallingService extends GetxService {
     'git_log',
     'get_system_info',
     'get_datetime',
+    'get_location',
+    'get_weather',
     'get_clipboard',
     'calculate',
     'count_tokens',
@@ -326,6 +328,8 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('calculate', ToolRisk.readOnly, (_) async => _calculator(_));
     _register('get_system_info', ToolRisk.readOnly, (_) async => _systemInfo());
     _register('get_datetime', ToolRisk.readOnly, (_) async => _dateTime(_));
+    _register('get_location', ToolRisk.network, _getApproxLocation);
+    _register('get_weather', ToolRisk.network, _getWeather);
     _register('get_clipboard', ToolRisk.readOnly, _getClipboard);
     _register('set_clipboard', ToolRisk.write, _setClipboard);
     _register('read_file', ToolRisk.readOnly, _readFile);
@@ -467,6 +471,131 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
       'formatted': DateFormat('yyyy-MM-dd HH:mm:ss Z').format(now),
       'timezone': now.timeZoneName,
       'timezoneOffsetMinutes': now.timeZoneOffset.inMinutes,
+    };
+  }
+
+  Future<Map<String, dynamic>> _getApproxLocation(
+    Map<String, dynamic> args,
+  ) async {
+    final response = await http
+        .get(Uri.parse('https://ipapi.co/json/'))
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 200) {
+      return {
+        'error': 'location_lookup_failed',
+        'status': response.statusCode,
+        'body': _truncate(response.body, 1000),
+      };
+    }
+
+    final data = jsonDecode(response.body);
+    if (data is! Map) {
+      return {'error': 'invalid_location_response'};
+    }
+
+    return {
+      'source': 'ip_geolocation',
+      'city': data['city'],
+      'region': data['region'],
+      'country': data['country_name'],
+      'latitude': data['latitude'],
+      'longitude': data['longitude'],
+      'timezone': data['timezone'],
+      'accuracy': 'approximate',
+    };
+  }
+
+  Future<Map<String, dynamic>> _getWeather(Map<String, dynamic> args) async {
+    var location = args['location']?.toString().trim() ?? '';
+    if (location.isEmpty) {
+      final approx = await _getApproxLocation(args);
+      final city = approx['city']?.toString();
+      final region = approx['region']?.toString();
+      final country = approx['country']?.toString();
+      location = [
+        if (city != null && city.isNotEmpty) city,
+        if (region != null && region.isNotEmpty) region,
+        if (country != null && country.isNotEmpty) country,
+      ].join(', ');
+    }
+    if (location.isEmpty) {
+      return {
+        'error': 'location_required',
+        'reason':
+            'No location argument was provided and approximate location lookup failed.',
+      };
+    }
+
+    final uri = Uri.https('wttr.in', '/$location', {'format': 'j1'});
+    final response = await http.get(uri).timeout(const Duration(seconds: 20));
+    if (response.statusCode != 200) {
+      return {
+        'error': 'weather_lookup_failed',
+        'location': location,
+        'status': response.statusCode,
+        'body': _truncate(response.body, 1000),
+      };
+    }
+
+    final data = jsonDecode(response.body);
+    if (data is! Map) return {'error': 'invalid_weather_response'};
+
+    Map? firstMap(Object? value) {
+      if (value is List && value.isNotEmpty && value.first is Map) {
+        return value.first as Map;
+      }
+      return null;
+    }
+
+    final current = firstMap(data['current_condition']);
+    final nearest = firstMap(data['nearest_area']);
+    final weather = firstMap(data['weather']);
+    final astronomy = weather == null ? null : firstMap(weather['astronomy']);
+
+    String? textFromList(Object? value) {
+      if (value is List && value.isNotEmpty && value.first is Map) {
+        return (value.first as Map)['value']?.toString();
+      }
+      return null;
+    }
+
+    return {
+      'source': 'wttr.in',
+      'requestedLocation': location,
+      'resolvedLocation': nearest is Map
+          ? {
+              'area': textFromList(nearest['areaName']),
+              'region': textFromList(nearest['region']),
+              'country': textFromList(nearest['country']),
+              'latitude': nearest['latitude'],
+              'longitude': nearest['longitude'],
+            }
+          : null,
+      'current': current is Map
+          ? {
+              'temperatureC': current['temp_C'],
+              'temperatureF': current['temp_F'],
+              'feelsLikeC': current['FeelsLikeC'],
+              'feelsLikeF': current['FeelsLikeF'],
+              'humidity': current['humidity'],
+              'windKmph': current['windspeedKmph'],
+              'description': textFromList(current['weatherDesc']),
+              'observationTime': current['observation_time'],
+            }
+          : null,
+      'today': weather is Map
+          ? {
+              'date': weather['date'],
+              'maxC': weather['maxtempC'],
+              'minC': weather['mintempC'],
+              'maxF': weather['maxtempF'],
+              'minF': weather['mintempF'],
+              'sunrise': astronomy?['sunrise'],
+              'sunset': astronomy?['sunset'],
+            }
+          : null,
+      'accuracy':
+          args['location'] == null ? 'approximate_ip_location' : 'requested',
     };
   }
 

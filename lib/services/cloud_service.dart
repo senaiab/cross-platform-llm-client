@@ -16,23 +16,23 @@ class CloudService extends GetxService {
   String get _apiKey {
     switch (_provider) {
       case 'anthropic':
-        return _hive.getSetting(AppConstants.keyAnthropicKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyAnthropicKey) ?? '').trim();
       case 'google':
-        return _hive.getSetting(AppConstants.keyGoogleKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyGoogleKey) ?? '').trim();
       case 'kimi':
-        return _hive.getSetting(AppConstants.keyKimiKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyKimiKey) ?? '').trim();
       case 'stability':
-        return _hive.getSetting(AppConstants.keyStabilityKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyStabilityKey) ?? '').trim();
       case 'nvidia':
-        return _hive.getSetting(AppConstants.keyNvidiaKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyNvidiaKey) ?? '').trim();
       case 'openrouter':
-        return _hive.getSetting(AppConstants.keyOpenRouterKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyOpenRouterKey) ?? '').trim();
       case 'deepseek':
-        return _hive.getSetting(AppConstants.keyDeepSeekKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyDeepSeekKey) ?? '').trim();
       case 'custom':
-        return _hive.getSetting(AppConstants.keyCustomCloudKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyCustomCloudKey) ?? '').trim();
       default:
-        return _hive.getSetting(AppConstants.keyOpenaiKey) ?? '';
+        return (_hive.getSetting(AppConstants.keyOpenaiKey) ?? '').trim();
     }
   }
 
@@ -54,7 +54,7 @@ class CloudService extends GetxService {
             'meta/llama-3.1-8b-instruct';
       case 'openrouter':
         return _hive.getSetting(AppConstants.keyOpenRouterModel) ??
-            'openai/gpt-4o-mini';
+            'openrouter/free';
       case 'deepseek':
         return _hive.getSetting(AppConstants.keyDeepSeekModel) ??
             'deepseek-v4-flash';
@@ -69,7 +69,9 @@ class CloudService extends GetxService {
     if (_provider == 'custom') {
       final baseUrl =
           _hive.getSetting(AppConstants.keyCustomCloudBaseUrl) ?? '';
-      return _apiKey.isNotEmpty && _model.isNotEmpty && baseUrl.isNotEmpty;
+      return _apiKey.isNotEmpty &&
+          _model.trim().isNotEmpty &&
+          baseUrl.toString().trim().isNotEmpty;
     }
     return _apiKey.isNotEmpty;
   }
@@ -85,7 +87,7 @@ class CloudService extends GetxService {
     void Function(String token)? onToken,
   }) async {
     if (!isConfigured) {
-      return 'ERROR: No API key configured for $_provider. Go to Settings.';
+      return 'ERROR: No API key configured for $_provider. Go to Settings and save the provider key.';
     }
 
     try {
@@ -186,6 +188,7 @@ class CloudService extends GetxService {
     if (_provider == 'openrouter') {
       return const {
         'HTTP-Referer': 'https://ai-chat.local',
+        'X-OpenRouter-Title': 'AI Chat',
         'X-Title': 'AI Chat',
       };
     }
@@ -468,6 +471,7 @@ class CloudService extends GetxService {
       maxTokens: maxTokens,
       extraHeaders: const {
         'HTTP-Referer': 'https://ai-chat.local',
+        'X-OpenRouter-Title': 'AI Chat',
         'X-Title': 'AI Chat',
       },
     );

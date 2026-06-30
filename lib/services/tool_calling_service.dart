@@ -11,6 +11,7 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path/path.dart' as p;
+import 'package:xml/xml.dart';
 
 import '../core/constants.dart';
 import 'app_log_service.dart';
@@ -41,6 +42,7 @@ class ToolCallingService extends GetxService {
     'diff_files',
     'read_pdf',
     'read_docx',
+    'read_xlsx',
     'read_json',
     'read_csv',
     'run_shell',
@@ -353,8 +355,10 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('hash_file', ToolRisk.readOnly, _hashFile);
     _register('read_pdf', ToolRisk.readOnly, _readDocument('pdf'));
     _register('read_docx', ToolRisk.readOnly, _readDocument('docx'));
+    _register('read_xlsx', ToolRisk.readOnly, _readXlsx);
     _register('read_json', ToolRisk.readOnly, _readJson);
     _register('read_csv', ToolRisk.readOnly, _readCsv);
+    _register('write_xlsx', ToolRisk.write, _writeXlsx);
     _register('fetch_webpage', ToolRisk.network, _fetchWebpage);
     _register('http_request', ToolRisk.network, _httpRequest);
     _register('download_file', ToolRisk.write, _downloadFile);
@@ -822,6 +826,100 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     };
   }
 
+  Future<Map<String, dynamic>> _readXlsx(Map<String, dynamic> args) async {
+    final path = _stringArg(args, 'path');
+    final maxRows = _intArg(args, 'max_rows', 200);
+    final maxSheets = _intArg(args, 'max_sheets', 20);
+    final archive = ZipDecoder().decodeBytes(await File(path).readAsBytes());
+    final sharedStrings = _readXlsxSharedStrings(archive);
+    final sheets = _readXlsxSheetRefs(archive).take(maxSheets).toList();
+    final resultSheets = <Map<String, dynamic>>[];
+
+    for (final sheet in sheets) {
+      final file = archive.findFile(sheet.path);
+      if (file == null) continue;
+      final document = XmlDocument.parse(
+        utf8.decode(file.content as List<int>, allowMalformed: true),
+      );
+      final rows = <List<dynamic>>[];
+
+      for (final row in document.findAllElements('row')) {
+        final valuesByColumn = <int, dynamic>{};
+        var maxColumn = 0;
+        for (final cell in row.findElements('c')) {
+          final reference = cell.getAttribute('r') ?? '';
+          final columnIndex = _xlsxColumnIndex(reference);
+          final value = _xlsxCellValue(cell, sharedStrings);
+          valuesByColumn[columnIndex] = value;
+          if (columnIndex > maxColumn) maxColumn = columnIndex;
+        }
+        rows.add(
+          List<dynamic>.generate(
+            maxColumn,
+            (index) => valuesByColumn[index + 1] ?? '',
+          ),
+        );
+        if (rows.length >= maxRows) break;
+      }
+
+      resultSheets.add({
+        'name': sheet.name,
+        'path': sheet.path,
+        'rows': rows,
+        'truncated': rows.length >= maxRows,
+      });
+    }
+
+    return {
+      'path': path,
+      'sheets': resultSheets,
+      'sheetCount': sheets.length,
+    };
+  }
+
+  Future<Map<String, dynamic>> _writeXlsx(Map<String, dynamic> args) async {
+    final path = _stringArg(args, 'path');
+    final rawRows = args['rows'];
+    if (rawRows is! List) {
+      throw ArgumentError('write_xlsx requires rows: [[...], [...]]');
+    }
+    final sheetName = _stringArg(args, 'sheet', defaultValue: 'Sheet1');
+    final rows = rawRows
+        .map(
+          (row) => row is List
+              ? row.map((cell) => cell).toList(growable: false)
+              : <dynamic>[row],
+        )
+        .toList(growable: false);
+    final archive = Archive();
+
+    void add(String name, String content) {
+      archive.addFile(ArchiveFile.string(name, content));
+    }
+
+    add('[Content_Types].xml', _xlsxContentTypesXml);
+    add('_rels/.rels', _xlsxRootRelsXml);
+    add('xl/workbook.xml', _xlsxWorkbookXml(sheetName));
+    add('xl/_rels/workbook.xml.rels', _xlsxWorkbookRelsXml);
+    add('xl/worksheets/sheet1.xml', _xlsxWorksheetXml(rows));
+    add('xl/styles.xml', _xlsxStylesXml);
+
+    final encoded = ZipEncoder().encode(archive);
+    if (encoded == null) throw StateError('Failed to encode XLSX archive');
+    await File(path).create(recursive: true);
+    await File(path).writeAsBytes(encoded);
+    return {
+      'ok': true,
+      'path': path,
+      'sheet': sheetName,
+      'rows': rows.length,
+      'columns': rows.fold<int>(
+        0,
+        (maxColumns, row) => max(maxColumns, row.length),
+      ),
+    };
+  }
+
   Future<Map<String, dynamic>> _readJson(Map<String, dynamic> args) async {
     final path = _stringArg(args, 'path');
     return {'path': path, 'data': jsonDecode(await File(path).readAsString())};
@@ -1063,6 +1161,186 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     };
   }
 
+  List<String> _readXlsxSharedStrings(Archive archive) {
+    final file = archive.findFile('xl/sharedStrings.xml');
+    if (file == null) return const [];
+    final document = XmlDocument.parse(
+      utf8.decode(file.content as List<int>, allowMalformed: true),
+    );
+    return document.findAllElements('si').map((item) {
+      return item.findAllElements('t').map((text) => text.innerText).join();
+    }).toList(growable: false);
+  }
+
+  List<_XlsxSheetRef> _readXlsxSheetRefs(Archive archive) {
+    final workbook = archive.findFile('xl/workbook.xml');
+    if (workbook == null) return const [];
+    final rels = archive.findFile('xl/_rels/workbook.xml.rels');
+    final relTargets = <String, String>{};
+    if (rels != null) {
+      final relsDocument = XmlDocument.parse(
+        utf8.decode(rels.content as List<int>, allowMalformed: true),
+      );
+      for (final rel in relsDocument.findAllElements('Relationship')) {
+        final id = rel.getAttribute('Id');
+        final target = rel.getAttribute('Target');
+        if (id != null && target != null) {
+          relTargets[id] = target.startsWith('/')
+              ? target.substring(1)
+              : p.posix.normalize('xl/$target');
+        }
+      }
+    }
+
+    final workbookDocument = XmlDocument.parse(
+      utf8.decode(workbook.content as List<int>, allowMalformed: true),
+    );
+    final refs = <_XlsxSheetRef>[];
+    var fallbackIndex = 1;
+    for (final sheet in workbookDocument.findAllElements('sheet')) {
+      final name = sheet.getAttribute('name') ?? 'Sheet$fallbackIndex';
+      final relId = sheet.getAttribute('r:id');
+      final target = relId == null ? null : relTargets[relId];
+      refs.add(
+        _XlsxSheetRef(
+          name: name,
+          path: target ?? 'xl/worksheets/sheet$fallbackIndex.xml',
+        ),
+      );
+      fallbackIndex++;
+    }
+    return refs;
+  }
+
+  dynamic _xlsxCellValue(XmlElement cell, List<String> sharedStrings) {
+    final type = cell.getAttribute('t');
+    if (type == 'inlineStr') {
+      return cell.findAllElements('t').map((text) => text.innerText).join();
+    }
+    final valueElement = cell.findElements('v').isEmpty
+        ? null
+        : cell.findElements('v').first;
+    final raw = valueElement?.innerText ?? '';
+    if (type == 's') {
+      final index = int.tryParse(raw);
+      if (index != null && index >= 0 && index < sharedStrings.length) {
+        return sharedStrings[index];
+      }
+      return raw;
+    }
+    if (type == 'b') return raw == '1';
+    if (raw.isEmpty) return '';
+    return num.tryParse(raw) ?? raw;
+  }
+
+  int _xlsxColumnIndex(String reference) {
+    final letters = RegExp(r'^[A-Za-z]+').stringMatch(reference) ?? 'A';
+    var index = 0;
+    for (final codeUnit in letters.toUpperCase().codeUnits) {
+      index = index * 26 + (codeUnit - 64);
+    }
+    return index;
+  }
+
+  String _xlsxColumnName(int index) {
+    final buffer = StringBuffer();
+    while (index > 0) {
+      index--;
+      buffer.writeCharCode(65 + (index % 26));
+      index ~/= 26;
+    }
+    return buffer.toString().split('').reversed.join();
+  }
+
+  String _xlsxEscape(Object? value) {
+    return value
+        .toString()
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;');
+  }
+
+  String _xlsxSheetName(String name) {
+    final sanitized = name.replaceAll(RegExp(r'[\[\]:*?/\\]'), ' ').trim();
+    if (sanitized.isEmpty) return 'Sheet1';
+    return sanitized.length > 31 ? sanitized.substring(0, 31) : sanitized;
+  }
+
+  String _xlsxWorkbookXml(String sheetName) {
+    final safeName = _xlsxEscape(_xlsxSheetName(sheetName));
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="$safeName" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>''';
+  }
+
+  String _xlsxWorksheetXml(List<List<dynamic>> rows) {
+    final rowXml = StringBuffer();
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      final excelRow = rowIndex + 1;
+      rowXml.write('<row r="$excelRow">');
+      for (var columnIndex = 0; columnIndex < rows[rowIndex].length; columnIndex++) {
+        final value = rows[rowIndex][columnIndex];
+        final ref = '${_xlsxColumnName(columnIndex + 1)}$excelRow';
+        if (value is num) {
+          rowXml.write('<c r="$ref"><v>$value</v></c>');
+        } else if (value is bool) {
+          rowXml.write('<c r="$ref" t="b"><v>${value ? 1 : 0}</v></c>');
+        } else if (value == null || value.toString().isEmpty) {
+          rowXml.write('<c r="$ref"/>');
+        } else {
+          rowXml.write(
+            '<c r="$ref" t="inlineStr"><is><t>${_xlsxEscape(value)}</t></is></c>',
+          );
+        }
+      }
+      rowXml.write('</row>');
+    }
+
+    return '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    $rowXml
+  </sheetData>
+</worksheet>''';
+  }
+
+  static const String _xlsxContentTypesXml =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>''';
+
+  static const String _xlsxRootRelsXml =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>''';
+
+  static const String _xlsxWorkbookRelsXml =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>''';
+
+  static const String _xlsxStylesXml =
+      '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
+  <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+  <borders count="1"><border/></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
+</styleSheet>''';
+
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) _notImplemented(
     String name,
   ) {
@@ -1141,6 +1419,13 @@ class _RegisteredTool {
   final ToolRisk risk;
   final bool implemented;
   final Future<Map<String, dynamic>> Function(Map<String, dynamic>) handler;
+}
+
+class _XlsxSheetRef {
+  const _XlsxSheetRef({required this.name, required this.path});
+
+  final String name;
+  final String path;
 }
 
 class _ArithmeticParser {

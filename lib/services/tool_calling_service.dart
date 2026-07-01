@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
@@ -405,6 +406,9 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('mcp_call_tool', ToolRisk.network, _mcpCallTool);
     _register('mcp_list_servers', ToolRisk.readOnly, _mcpListServers);
     _register('mcp_remove_server', ToolRisk.write, _mcpRemoveServer);
+    _register('read_sqlite', ToolRisk.readOnly, _readSqlite);
+    _register('read_pptx', ToolRisk.readOnly, _readPptx);
+    _register('write_docx', ToolRisk.write, _writeDocx);
 
     for (final name in allToolNames) {
       _tools.putIfAbsent(
@@ -771,13 +775,111 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
 
   Future<Map<String, dynamic>> _patchFile(Map<String, dynamic> args) async {
     final path = _stringArg(args, 'path');
-    final search = _stringArg(args, 'search');
-    final replace = _stringArg(args, 'replace');
+    final patch = _stringArg(args, 'patch');
     final file = File(path);
-    final text = await file.readAsString();
-    final count = search.allMatches(text).length;
-    await file.writeAsString(text.replaceAll(search, replace));
-    return {'ok': true, 'path': path, 'replacements': count};
+    if (!file.existsSync()) return {'error': 'File not found: $path'};
+    var lines = file.readAsLinesSync();
+    final patchLines = patch.split('\n');
+    int applied = 0;
+    int i = 0;
+    while (i < patchLines.length) {
+      final line = patchLines[i];
+      if (line.startsWith('@@')) {
+        final m = RegExp(r'@@ -(\d+)(?:,\d+)? \+(\d+)').firstMatch(line);
+        if (m != null) {
+          final srcStart = int.parse(m.group(1)!) - 1;
+          int srcLine = srcStart;
+          final hunkLines = <String>[];
+          i++;
+          while (i < patchLines.length && !patchLines[i].startsWith('@@') && !patchLines[i].startsWith('---') && !patchLines[i].startsWith('+++')) {
+            final pl = patchLines[i];
+            if (pl.startsWith('+')) {
+              hunkLines.add(pl.substring(1));
+            } else if (pl.startsWith('-')) {
+              srcLine++;
+            } else if (pl.startsWith(' ')) {
+              hunkLines.add(pl.substring(1));
+              srcLine++;
+            }
+            i++;
+          }
+          lines = [...lines.sublist(0, srcStart), ...hunkLines, ...lines.sublist(srcLine)];
+          applied++;
+          continue;
+        }
+      }
+      i++;
+    }
+    await file.writeAsString(lines.join('\n'));
+    return {'ok': true, 'hunks_applied': applied};
+  }
+
+  Future<Map<String, dynamic>> _readSqlite(Map<String, dynamic> args) async {
+    final path = _stringArg(args, 'path');
+    final query = _stringArg(args, 'query');
+    final db = await openDatabase(path, readOnly: true);
+    try {
+      final rows = await db.rawQuery(query);
+      return {'rows': rows, 'count': rows.length};
+    } finally {
+      await db.close();
+    }
+  }
+
+  Future<Map<String, dynamic>> _readPptx(Map<String, dynamic> args) async {
+    final path = _stringArg(args, 'path');
+    final bytes = await File(path).readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final slideFiles = archive.files
+        .where((f) => f.name.startsWith('ppt/slides/slide') && f.name.endsWith('.xml'))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+    final buffer = StringBuffer();
+    for (final slide in slideFiles) {
+      final xml = utf8.decode(slide.content as List<int>);
+      final doc = XmlDocument.parse(xml);
+      final texts = doc.findAllElements('a:t').map((e) => e.innerText.trim()).where((t) => t.isNotEmpty);
+      if (texts.isNotEmpty) buffer.writeln(texts.join(' '));
+    }
+    final text = _truncate(buffer.toString(), _intArg(args, 'max_chars', 50000));
+    return {'text': text, 'slides': slideFiles.length};
+  }
+
+  Future<Map<String, dynamic>> _writeDocx(Map<String, dynamic> args) async {
+    final path = _stringArg(args, 'path');
+    final content = _stringArg(args, 'content');
+    final paragraphs = content.split('\n').map((line) {
+      final escaped = line.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      return '<w:p><w:r><w:t xml:space="preserve">$escaped</w:t></w:r></w:p>';
+    }).join('');
+    final docXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body>$paragraphs<w:sectPr/></w:body></w:document>''';
+    final relsXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>''';
+    final contentTypesXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>''';
+    final wordRelsXml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>''';
+    final archive = Archive();
+    void addFile(String name, String content) {
+      final bytes = utf8.encode(content);
+      archive.addFile(ArchiveFile(name, bytes.length, bytes));
+    }
+    addFile('[Content_Types].xml', contentTypesXml);
+    addFile('_rels/.rels', relsXml);
+    addFile('word/document.xml', docXml);
+    addFile('word/_rels/document.xml.rels', wordRelsXml);
+    final bytes = ZipEncoder().encode(archive)!;
+    await File(path).create(recursive: true);
+    await File(path).writeAsBytes(bytes);
+    return {'ok': true, 'path': path};
   }
 
   Future<Map<String, dynamic>> _zipFiles(Map<String, dynamic> args) async {

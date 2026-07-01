@@ -1,7 +1,7 @@
 name: privatelm
 description: AI Chat — Local/Cloud LLM Assistant
 publish_to: "none"
-version: 1.0.5+5
+version: 1.0.6+6
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -67,6 +67,7 @@ dependencies:
   firebase_crashlytics: ^4.3.10
   package_info_plus: ^9.0.1
   device_info_plus: ^12.4.0
+  sqflite: ^2.3.3
 
 dev_dependencies:
   flutter_test:

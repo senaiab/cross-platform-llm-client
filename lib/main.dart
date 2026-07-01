@@ -22,6 +22,7 @@ import 'services/download_service.dart';
 import 'services/device_info_service.dart';
 import 'services/local_image_service.dart';
 import 'services/tool_calling_service.dart';
+import 'services/mcp_service.dart';
 import 'services/app_log_service.dart';
 import 'services/crash_reporting_service.dart';
 import 'services/image_generation_notification_service.dart';
@@ -75,6 +76,7 @@ void main() {
 
       Get.put(InferenceService());
       Get.put(CloudService());
+      Get.put(McpService());
       Get.put(ToolCallingService());
       Get.put(DownloadService());
       Get.put(LocalImageService());

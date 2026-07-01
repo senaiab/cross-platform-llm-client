@@ -18,6 +18,7 @@ import 'app_log_service.dart';
 import 'device_info_service.dart';
 import 'document_extractor_service.dart';
 import 'hive_service.dart';
+import 'mcp_service.dart';
 
 enum ToolCallingMode { plan, build, agent }
 
@@ -66,6 +67,11 @@ class ToolCallingService extends GetxService {
     'device_info',
     'settings_summary',
     'hash_file',
+    'mcp_add_server',
+    'mcp_initialize',
+    'mcp_list_tools',
+    'mcp_call_tool',
+    'mcp_list_servers',
   ];
 
   static const List<String> allToolNames = [
@@ -153,6 +159,12 @@ class ToolCallingService extends GetxService {
     'device_info',
     'settings_summary',
     'calculator',
+    'mcp_add_server',
+    'mcp_initialize',
+    'mcp_list_tools',
+    'mcp_call_tool',
+    'mcp_list_servers',
+    'mcp_remove_server',
   ];
 
   static final String protocolPrompt = '''
@@ -387,6 +399,12 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('extract_json', ToolRisk.readOnly, _extractJson);
     _register('format_code', ToolRisk.readOnly, _formatCode);
     _register('analyze_log', ToolRisk.readOnly, _analyzeLog);
+    _register('mcp_add_server', ToolRisk.network, _mcpAddServer);
+    _register('mcp_initialize', ToolRisk.network, _mcpInitialize);
+    _register('mcp_list_tools', ToolRisk.network, _mcpListTools);
+    _register('mcp_call_tool', ToolRisk.network, _mcpCallTool);
+    _register('mcp_list_servers', ToolRisk.readOnly, _mcpListServers);
+    _register('mcp_remove_server', ToolRisk.write, _mcpRemoveServer);
 
     for (final name in allToolNames) {
       _tools.putIfAbsent(
@@ -1340,6 +1358,43 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
 </styleSheet>''';
+
+  Future<Map<String, dynamic>> _mcpAddServer(Map<String, dynamic> args) async {
+    final name = _stringArg(args, 'name');
+    final url = _stringArg(args, 'url');
+    final auth = args['auth_header']?.toString();
+    Get.find<McpService>().addServer(name, url, authHeader: auth);
+    return {'ok': true, 'message': 'Server "$name" added'};
+  }
+
+  Future<Map<String, dynamic>> _mcpInitialize(Map<String, dynamic> args) async {
+    final name = _stringArg(args, 'server');
+    return Get.find<McpService>().initialize(name);
+  }
+
+  Future<Map<String, dynamic>> _mcpListTools(Map<String, dynamic> args) async {
+    final name = _stringArg(args, 'server');
+    final tools = await Get.find<McpService>().listTools(name);
+    return {'tools': tools, 'count': tools.length};
+  }
+
+  Future<Map<String, dynamic>> _mcpCallTool(Map<String, dynamic> args) async {
+    final server = _stringArg(args, 'server');
+    final tool = _stringArg(args, 'tool');
+    final toolArgs = (args['arguments'] as Map<String, dynamic>?) ?? {};
+    return Get.find<McpService>().callTool(server, tool, toolArgs);
+  }
+
+  Future<Map<String, dynamic>> _mcpListServers(Map<String, dynamic> _) async {
+    final servers = Get.find<McpService>().listServers();
+    return {'servers': servers, 'count': servers.length};
+  }
+
+  Future<Map<String, dynamic>> _mcpRemoveServer(Map<String, dynamic> args) async {
+    final name = _stringArg(args, 'server');
+    Get.find<McpService>().removeServer(name);
+    return {'ok': true};
+  }
 
   Future<Map<String, dynamic>> Function(Map<String, dynamic>) _notImplemented(
     String name,

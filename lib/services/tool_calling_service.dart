@@ -6,7 +6,8 @@ import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:device_calendar/device_calendar.dart';
+import 'package:device_calendar/device_calendar.dart' hide Event;
+import 'package:device_calendar/device_calendar.dart' as dc show Event;
 import 'package:flutter_contacts/flutter_contacts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -1620,7 +1621,7 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     final calsResult = await plugin.retrieveCalendars();
     final cal = calsResult.data?.firstWhere((c) => !(c.isReadOnly ?? true), orElse: () => calsResult.data!.first);
     if (cal == null) return {'error': 'No writable calendar found'};
-    final event = Event(cal.id!,
+    final event = dc.Event(cal.id!,
       title: _stringArg(args, 'title'),
       start: tz.TZDateTime.parse(tz.getLocation('UTC'), _stringArg(args, 'start')),
       end: tz.TZDateTime.parse(tz.getLocation('UTC'), _stringArg(args, 'end')),

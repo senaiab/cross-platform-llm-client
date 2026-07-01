@@ -325,6 +325,9 @@ class ChatController extends GetxController {
           'heic',
           'pdf',
           'docx',
+          'xlsx',
+          'xls',
+          'pptx',
           'mp3',
           'm4a',
           'wav',
@@ -394,7 +397,7 @@ class ChatController extends GetxController {
       selectedImagePath.value = null;
       selectedImageBase64.value = null;
 
-      if (fileType == 'pdf' || fileType == 'docx') {
+      if (fileType == 'pdf' || fileType == 'docx' || fileType == 'xlsx' || fileType == 'pptx') {
         final path = file.path;
         if (path != null) {
           try {
@@ -1113,6 +1116,8 @@ class ChatController extends GetxController {
     if (audioExtensions.contains(extension)) return 'audio';
     if (extension == 'pdf') return 'pdf';
     if (extension == 'docx') return 'docx';
+    if (extension == 'xlsx' || extension == 'xls') return 'xlsx';
+    if (extension == 'pptx') return 'pptx';
     if (textExtensions.contains(extension)) return 'text';
     return 'file';
   }
@@ -1125,6 +1130,10 @@ class ChatController extends GetxController {
         return 'Summarize this PDF.';
       case 'docx':
         return 'Summarize this document.';
+      case 'xlsx':
+        return 'Summarize this spreadsheet.';
+      case 'pptx':
+        return 'Summarize this presentation.';
       case 'audio':
         return 'Transcribe or analyze this audio.';
       case 'text':

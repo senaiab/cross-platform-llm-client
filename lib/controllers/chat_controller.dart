@@ -935,7 +935,7 @@ class ChatController extends GetxController {
     final modelName = settings.inferenceMode.value == 'local'
         ? inference.loadedModelName.value
         : settings.selectedCloudModelName;
-    return '${settings.effectiveSystemPromptForModel(modelName)}\n\n${ToolCallingService.protocolPrompt}';
+    return '${settings.effectiveSystemPromptForModel(modelName)}\n\n${ToolCallingService.protocolPrompt}\n\n${ToolCallingService.planningPrompt}';
   }
 
   Future<String> _resolveToolCalls({
@@ -966,6 +966,16 @@ class ChatController extends GetxController {
       final maxRounds = toolMode == ToolCallingMode.agent
           ? ToolCallingService.agentMaxRounds
           : ToolCallingService.planMaxRounds;
+      final stepOutputs = <int, String>{};
+      int stepNum = 0;
+
+      // Log plan if present
+      if (response.contains('[PLAN]')) {
+        final planMatch = RegExp(r'\[PLAN\]([\s\S]*?)\[/PLAN\]').firstMatch(response);
+        if (planMatch != null) {
+          Get.find<AppLogService>().info('[Planning] Plan detected:\n${planMatch.group(1)?.trim()}');
+        }
+      }
 
       for (var round = 0; round < maxRounds; round++) {
         if (generationId != _generationSerial) return response;
@@ -989,17 +999,25 @@ class ChatController extends GetxController {
           result = {'error': e.toString()};
         }
 
+        stepNum++;
+        final resultText = jsonEncode(result);
+        stepOutputs[stepNum] = resultText;
+
         final toolResult = tools.renderToolResultForModel(request, result);
         toolHistory
           ..add({'role': 'assistant', 'content': answer})
           ..add({'role': 'user', 'content': toolResult});
 
         streamingResponse.value = '';
-        response = await _generateToolFollowUp(
-          prompt: _toolFollowUpPrompt(
+        final followUpPrompt = _substituteStepOutputs(
+          _toolFollowUpPrompt(
             originalUserRequest: originalUserRequest,
             toolResult: toolResult,
           ),
+          stepOutputs,
+        );
+        response = await _generateToolFollowUp(
+          prompt: followUpPrompt,
           history: toolHistory,
           inferenceMode: inferenceMode,
           onToken: onToken,
@@ -1043,6 +1061,14 @@ class ChatController extends GetxController {
       ],
       onToken: onToken,
     );
+  }
+
+  String _substituteStepOutputs(String text, Map<int, String> stepOutputs) {
+    var result = text;
+    for (final entry in stepOutputs.entries) {
+      result = result.replaceAll('{{step_${entry.key}_output}}', entry.value);
+    }
+    return result;
   }
 
   String _toolFollowUpPrompt({

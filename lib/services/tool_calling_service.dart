@@ -176,6 +176,20 @@ class ToolCallingService extends GetxService {
     'mcp_remove_server',
   ];
 
+  static const String planningPrompt = '''
+When the user asks you to perform a multi-step task, you may emit a plan using this format:
+
+[PLAN]
+step_1: <description>
+step_2: <description>
+...
+[/PLAN]
+
+Then execute each step by calling the appropriate tool. After each tool result, you may use {{step_N_output}} to refer to prior step outputs. After all steps, write a [SYNTHESIZE] block summarizing the results.
+
+verify: <success_check> where success_check can be: contains(<text>), not_empty, file_exists(<path>), exit_code_ok
+''';
+
   static final String protocolPrompt = '''
 Tool calling is available through a ReAct loop.
 

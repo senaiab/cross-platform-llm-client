@@ -68,7 +68,7 @@ dependencies:
   package_info_plus: ^9.0.1
   device_info_plus: ^12.4.0
   sqflite: ^2.3.3
-  device_calendar: ^4.3.5
+  device_calendar: ^4.3.3
   flutter_contacts: ^1.1.9+1
   timezone: ^0.9.4
 

@@ -194,6 +194,8 @@ ${advertisedCoreTools.join(', ')}
 Other registered tools are available by exact name but are not listed here to keep context short.
 Prefer tool calls for current file, device, web, calculation, data, git, or system facts. Do not invent tool results.''';
 
+  static const _termuxChannel = MethodChannel('com.orailnoor.privatelm/termux_bridge');
+
   final HiveService _hive = Get.find<HiveService>();
   final Map<String, _RegisteredTool> _tools = {};
 
@@ -1093,8 +1095,33 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
 
   Future<Map<String, dynamic>> _runShell(Map<String, dynamic> args) async {
     final command = _stringArg(args, 'command');
-    return _runCommand('/system/bin/sh', ['-c', command], args);
+    final workDir = args['working_directory']?.toString();
+    final timeout = _intArg(args, 'timeout_seconds', 30);
+    if (Platform.environment['PREFIX']?.contains('com.termux') == true) {
+      return _termuxBridgeExec(command, workDir, timeout);
+    }
+    return _runCommand('/system/bin/sh', ['-c', command], args, workingDirectory: workDir);
   }
+
+  Future<Map<String, dynamic>> _termuxBridgeExec(String command, String? workDir, int timeoutSeconds) async {
+    try {
+      final result = await _termuxChannel.invokeMethod<Map>('exec', {
+        'command': command,
+        'workDir': workDir,
+        'timeout_ms': timeoutSeconds * 1000,
+      });
+      final r = Map<String, dynamic>.from(result ?? {});
+      return {
+        'exitCode': r['exitCode'] ?? -1,
+        'stdout': _truncate(r['stdout']?.toString() ?? '', 20000),
+        'stderr': r['stderr']?.toString() ?? '',
+      };
+    } catch (e) {
+      return {'error': e.toString(), 'suggestion': 'Ensure Termux allow-external-apps=true in ~/.termux/termux.properties'};
+    }
+  }
+
+  String _shellQuote(String s) => "'${s.replaceAll("'", "\\'\\''")}'";
 
   Future<Map<String, dynamic>> _writeAndRun(Map<String, dynamic> args) async {
     final path = _stringArg(args, 'path');
@@ -1104,20 +1131,21 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
 
   Future<Map<String, dynamic>> _termuxPython(Map<String, dynamic> args) async {
     final code = _stringArg(args, 'code');
-    return _runCommand('python', ['-c', code], args);
+    return _termuxBridgeExec('python -c ${_shellQuote(code)}', args['working_directory']?.toString(), _intArg(args, 'timeout_seconds', 30));
   }
 
   Future<Map<String, dynamic>> _termuxBash(Map<String, dynamic> args) async {
     final command = _stringArg(args, 'command');
-    return _runCommand('bash', ['-lc', command], args);
+    return _termuxBridgeExec(command, args['working_directory']?.toString(), _intArg(args, 'timeout_seconds', 30));
   }
 
   Future<Map<String, dynamic>> _termuxCheck(Map<String, dynamic> _) async {
-    return {
-      'termux': Platform.environment['PREFIX']?.contains('com.termux') == true,
-      'prefix': Platform.environment['PREFIX'],
-      'home': Platform.environment['HOME'],
-    };
+    try {
+      final result = await _termuxChannel.invokeMethod<Map>('check');
+      return Map<String, dynamic>.from(result ?? {});
+    } catch (e) {
+      return {'termux': false, 'error': e.toString()};
+    }
   }
 
   Future<Map<String, dynamic>> _termuxOpen(Map<String, dynamic> args) async {

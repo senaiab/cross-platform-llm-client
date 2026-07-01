@@ -196,6 +196,11 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
 
   static const _termuxChannel = MethodChannel('com.orailnoor.privatelm/termux_bridge');
 
+  // Set by chat controller to intercept dangerous tool calls
+  Future<bool> Function(String toolName, Map<String, dynamic> args)? approvalHandler;
+
+  static const Set<ToolRisk> _risksNeedingApproval = {ToolRisk.shell, ToolRisk.external};
+
   final HiveService _hive = Get.find<HiveService>();
   final Map<String, _RegisteredTool> _tools = {};
 
@@ -242,6 +247,10 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
         'tool': name,
         'reason': 'This tool is not available in Plan mode.',
       };
+    }
+    if (approvalHandler != null && _risksNeedingApproval.contains(tool.risk) && mode != ToolCallingMode.plan) {
+      final approved = await approvalHandler!(name, arguments);
+      if (!approved) return {'error': 'user_denied', 'tool': name, 'message': 'User denied this tool call'};
     }
     return tool.handler(arguments);
   }

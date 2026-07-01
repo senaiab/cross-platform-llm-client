@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -25,6 +26,7 @@ import '../services/image_generation_notification_service.dart';
 import '../services/document_extractor_service.dart';
 import '../services/tool_calling_service.dart';
 import '../utils/thought_parser.dart';
+import '../widgets/tool_approval_dialog.dart';
 
 const int _visionImageMaxSide = 768;
 const int _visionImageJpegQuality = 72;
@@ -944,54 +946,70 @@ class ChatController extends GetxController {
     required void Function(String token) onToken,
   }) async {
     final tools = Get.find<ToolCallingService>();
-    var response = initialResponse;
-    final toolHistory = List<Map<String, String>>.from(baseHistory);
-    final originalUserRequest = _lastUserContent(baseHistory);
-    final toolMode = _toolModeForRequest(originalUserRequest);
-    final maxRounds = toolMode == ToolCallingMode.agent
-        ? ToolCallingService.agentMaxRounds
-        : ToolCallingService.planMaxRounds;
+    tools.approvalHandler = (toolName, args) {
+      final completer = Completer<bool>();
+      Get.dialog(
+        ToolApprovalDialog(
+          toolName: toolName,
+          args: args,
+          onResult: completer.complete,
+        ),
+        barrierDismissible: false,
+      );
+      return completer.future;
+    };
+    try {
+      var response = initialResponse;
+      final toolHistory = List<Map<String, String>>.from(baseHistory);
+      final originalUserRequest = _lastUserContent(baseHistory);
+      final toolMode = _toolModeForRequest(originalUserRequest);
+      final maxRounds = toolMode == ToolCallingMode.agent
+          ? ToolCallingService.agentMaxRounds
+          : ToolCallingService.planMaxRounds;
 
-    for (var round = 0; round < maxRounds; round++) {
-      if (generationId != _generationSerial) return response;
+      for (var round = 0; round < maxRounds; round++) {
+        if (generationId != _generationSerial) return response;
 
-      final answer = splitThoughtTags(response).answer;
-      final request = tools.parseToolCall(answer);
-      if (request == null) return response;
+        final answer = splitThoughtTags(response).answer;
+        final request = tools.parseToolCall(answer);
+        if (request == null) return response;
 
-      Map<String, dynamic> result;
-      try {
-        result = await tools.callTool(
-          request.name,
-          request.arguments,
-          mode: toolMode,
+        Map<String, dynamic> result;
+        try {
+          result = await tools.callTool(
+            request.name,
+            request.arguments,
+            mode: toolMode,
+          );
+        } catch (e) {
+          Get.find<AppLogService>().warning(
+            'Tool call failed',
+            details: 'tool=${request.name}, error=$e',
+          );
+          result = {'error': e.toString()};
+        }
+
+        final toolResult = tools.renderToolResultForModel(request, result);
+        toolHistory
+          ..add({'role': 'assistant', 'content': answer})
+          ..add({'role': 'user', 'content': toolResult});
+
+        streamingResponse.value = '';
+        response = await _generateToolFollowUp(
+          prompt: _toolFollowUpPrompt(
+            originalUserRequest: originalUserRequest,
+            toolResult: toolResult,
+          ),
+          history: toolHistory,
+          inferenceMode: inferenceMode,
+          onToken: onToken,
         );
-      } catch (e) {
-        Get.find<AppLogService>().warning(
-          'Tool call failed',
-          details: 'tool=${request.name}, error=$e',
-        );
-        result = {'error': e.toString()};
       }
 
-      final toolResult = tools.renderToolResultForModel(request, result);
-      toolHistory
-        ..add({'role': 'assistant', 'content': answer})
-        ..add({'role': 'user', 'content': toolResult});
-
-      streamingResponse.value = '';
-      response = await _generateToolFollowUp(
-        prompt: _toolFollowUpPrompt(
-          originalUserRequest: originalUserRequest,
-          toolResult: toolResult,
-        ),
-        history: toolHistory,
-        inferenceMode: inferenceMode,
-        onToken: onToken,
-      );
+      return response;
+    } finally {
+      tools.approvalHandler = null;
     }
-
-    return response;
   }
 
   ToolCallingMode _toolModeForRequest(String? request) {

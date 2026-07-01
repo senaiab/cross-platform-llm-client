@@ -6,6 +6,10 @@ import 'dart:typed_data';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:device_calendar/device_calendar.dart';
+import 'package:flutter_contacts/flutter_contacts.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:timezone/timezone.dart' as tz;
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
@@ -73,6 +77,10 @@ class ToolCallingService extends GetxService {
     'mcp_list_tools',
     'mcp_call_tool',
     'mcp_list_servers',
+    'get_calendar_events',
+    'create_calendar_event',
+    'get_contacts',
+    'search_contacts',
   ];
 
   static const List<String> allToolNames = [
@@ -420,6 +428,10 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('read_sqlite', ToolRisk.readOnly, _readSqlite);
     _register('read_pptx', ToolRisk.readOnly, _readPptx);
     _register('write_docx', ToolRisk.write, _writeDocx);
+    _register('get_calendar_events', ToolRisk.readOnly, _getCalendarEvents);
+    _register('create_calendar_event', ToolRisk.write, _createCalendarEvent);
+    _register('get_contacts', ToolRisk.readOnly, _getContacts);
+    _register('search_contacts', ToolRisk.readOnly, _searchContacts);
 
     for (final name in allToolNames) {
       _tools.putIfAbsent(
@@ -1497,6 +1509,74 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
 </styleSheet>''';
+
+  Future<Map<String, dynamic>> _getCalendarEvents(Map<String, dynamic> args) async {
+    final permission = await Permission.calendar.request();
+    if (!permission.isGranted) return {'error': 'Calendar permission denied'};
+    final plugin = DeviceCalendarPlugin();
+    final calsResult = await plugin.retrieveCalendars();
+    if (calsResult.data == null) return {'error': 'No calendars found'};
+    final now = DateTime.now();
+    final start = now.subtract(const Duration(days: 7));
+    final end = now.add(Duration(days: _intArg(args, 'days_ahead', 30)));
+    final events = <Map<String, dynamic>>[];
+    for (final cal in calsResult.data!) {
+      final result = await plugin.retrieveEvents(cal.id!, RetrieveEventsParams(startDate: start, endDate: end));
+      for (final event in result.data ?? []) {
+        events.add({'title': event.title, 'start': event.start?.toIso8601String(), 'end': event.end?.toIso8601String(), 'calendar': cal.name, 'location': event.location, 'description': event.description});
+      }
+    }
+    events.sort((a, b) => (a['start'] ?? '').compareTo(b['start'] ?? ''));
+    return {'events': events, 'count': events.length};
+  }
+
+  Future<Map<String, dynamic>> _createCalendarEvent(Map<String, dynamic> args) async {
+    final permission = await Permission.calendar.request();
+    if (!permission.isGranted) return {'error': 'Calendar permission denied'};
+    final plugin = DeviceCalendarPlugin();
+    final calsResult = await plugin.retrieveCalendars();
+    final cal = calsResult.data?.firstWhere((c) => !(c.isReadOnly ?? true), orElse: () => calsResult.data!.first);
+    if (cal == null) return {'error': 'No writable calendar found'};
+    final event = Event(cal.id!,
+      title: _stringArg(args, 'title'),
+      start: tz.TZDateTime.parse(tz.getLocation('UTC'), _stringArg(args, 'start')),
+      end: tz.TZDateTime.parse(tz.getLocation('UTC'), _stringArg(args, 'end')),
+      description: args['description']?.toString(),
+      location: args['location']?.toString(),
+    );
+    final result = await plugin.createOrUpdateEvent(event);
+    return {'ok': result?.isSuccess == true, 'eventId': result?.data};
+  }
+
+  Future<Map<String, dynamic>> _getContacts(Map<String, dynamic> args) async {
+    final granted = await FlutterContacts.requestPermission();
+    if (!granted) return {'error': 'Contacts permission denied'};
+    final contacts = await FlutterContacts.getContacts(withProperties: true);
+    final limit = _intArg(args, 'limit', 50);
+    final mapped = contacts.take(limit).map((c) => {
+      'name': c.displayName,
+      'phones': c.phones.map((p) => p.number).toList(),
+      'emails': c.emails.map((e) => e.address).toList(),
+    }).toList();
+    return {'contacts': mapped, 'count': contacts.length, 'returned': mapped.length};
+  }
+
+  Future<Map<String, dynamic>> _searchContacts(Map<String, dynamic> args) async {
+    final query = _stringArg(args, 'query').toLowerCase();
+    final granted = await FlutterContacts.requestPermission();
+    if (!granted) return {'error': 'Contacts permission denied'};
+    final contacts = await FlutterContacts.getContacts(withProperties: true);
+    final matches = contacts.where((c) =>
+      c.displayName.toLowerCase().contains(query) ||
+      c.phones.any((p) => p.number.contains(query)) ||
+      c.emails.any((e) => e.address.toLowerCase().contains(query))
+    ).take(20).map((c) => {
+      'name': c.displayName,
+      'phones': c.phones.map((p) => p.number).toList(),
+      'emails': c.emails.map((e) => e.address).toList(),
+    }).toList();
+    return {'contacts': matches, 'count': matches.length};
+  }
 
   Future<Map<String, dynamic>> _mcpAddServer(Map<String, dynamic> args) async {
     final name = _stringArg(args, 'name');

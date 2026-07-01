@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.plugin.common.MethodChannel
 import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -21,6 +22,7 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
 
     companion object {
         private const val TAG = "LlamaFlutterPlugin"
+        private const val EMBED_CHANNEL = "com.write4me.llama_flutter_android/embeddings"
     }
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -28,6 +30,25 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
         context = binding.applicationContext
         flutterApi = LlamaFlutterApi(binding.binaryMessenger)
         LlamaHostApi.setUp(binding.binaryMessenger, this)
+        MethodChannel(binding.binaryMessenger, EMBED_CHANNEL).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "initEmbedModel" -> {
+                    val path = call.argument<String>("path") ?: run { result.error("MISSING_ARG", "path required", null); return@setMethodCallHandler }
+                    val ok = nativeInitEmbedModel(path)
+                    result.success(ok)
+                }
+                "embed" -> {
+                    val text = call.argument<String>("text") ?: run { result.error("MISSING_ARG", "text required", null); return@setMethodCallHandler }
+                    val vec = nativeEmbed(text)
+                    result.success(vec?.toList())
+                }
+                "freeEmbedModel" -> {
+                    nativeFreeEmbedModel()
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
@@ -452,4 +473,8 @@ class LlamaFlutterAndroidPlugin : FlutterPlugin, LlamaHostApi {
     private external fun nativeSetSystemPromptLength(length: Int)
     private external fun nativeDetectGpu(outStats: LongArray): String?
     // outStats[0] = vulkanApiVersion, outStats[1] = deviceLocalMemoryBytes
+
+    private external fun nativeInitEmbedModel(path: String): Boolean
+    private external fun nativeEmbed(text: String): FloatArray?
+    private external fun nativeFreeEmbedModel()
 }

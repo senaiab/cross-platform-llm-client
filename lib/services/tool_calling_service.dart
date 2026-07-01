@@ -24,6 +24,7 @@ import 'device_info_service.dart';
 import 'document_extractor_service.dart';
 import 'hive_service.dart';
 import 'mcp_service.dart';
+import 'rag_service.dart';
 
 enum ToolCallingMode { plan, build, agent }
 
@@ -81,6 +82,12 @@ class ToolCallingService extends GetxService {
     'create_calendar_event',
     'get_contacts',
     'search_contacts',
+    'rag_set_embed_model',
+    'rag_index_file',
+    'rag_index_text',
+    'rag_search',
+    'rag_list_sources',
+    'rag_status',
   ];
 
   static const List<String> allToolNames = [
@@ -174,6 +181,13 @@ class ToolCallingService extends GetxService {
     'mcp_call_tool',
     'mcp_list_servers',
     'mcp_remove_server',
+    'rag_set_embed_model',
+    'rag_index_file',
+    'rag_index_text',
+    'rag_search',
+    'rag_list_sources',
+    'rag_status',
+    'rag_clear',
   ];
 
   static const String planningPrompt = '''
@@ -446,6 +460,13 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('create_calendar_event', ToolRisk.write, _createCalendarEvent);
     _register('get_contacts', ToolRisk.readOnly, _getContacts);
     _register('search_contacts', ToolRisk.readOnly, _searchContacts);
+    _register('rag_set_embed_model', ToolRisk.write, _ragSetEmbedModel);
+    _register('rag_index_file', ToolRisk.write, _ragIndexFile);
+    _register('rag_index_text', ToolRisk.write, _ragIndexText);
+    _register('rag_search', ToolRisk.readOnly, _ragSearch);
+    _register('rag_list_sources', ToolRisk.readOnly, _ragListSources);
+    _register('rag_status', ToolRisk.readOnly, _ragStatus);
+    _register('rag_clear', ToolRisk.write, _ragClear);
 
     for (final name in allToolNames) {
       _tools.putIfAbsent(
@@ -1523,6 +1544,54 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>
 </styleSheet>''';
+
+  Future<Map<String, dynamic>> _ragSetEmbedModel(Map<String, dynamic> args) async {
+    final path = _stringArg(args, 'path');
+    final ok = await Get.find<RagService>().initEmbedModel(path);
+    return {'ok': ok, 'path': path};
+  }
+
+  Future<Map<String, dynamic>> _ragIndexFile(Map<String, dynamic> args) async {
+    final path = _stringArg(args, 'path');
+    final f = File(path);
+    if (!f.existsSync()) return {'error': 'File not found: $path'};
+    final text = f.readAsStringSync();
+    final n = await Get.find<RagService>().indexText(path, p.basename(path), text);
+    return {'ok': true, 'chunks_indexed': n};
+  }
+
+  Future<Map<String, dynamic>> _ragIndexText(Map<String, dynamic> args) async {
+    final source = _stringArg(args, 'source');
+    final title = args['title']?.toString() ?? source;
+    final text = _stringArg(args, 'text');
+    final n = await Get.find<RagService>().indexText(source, title, text);
+    return {'ok': true, 'chunks_indexed': n};
+  }
+
+  Future<Map<String, dynamic>> _ragSearch(Map<String, dynamic> args) async {
+    final query = _stringArg(args, 'query');
+    final k = _intArg(args, 'k', 5);
+    final results = await Get.find<RagService>().search(query, k: k);
+    return {'results': results, 'count': results.length};
+  }
+
+  Future<Map<String, dynamic>> _ragListSources(Map<String, dynamic> _) async {
+    final sources = await Get.find<RagService>().listSources();
+    return {'sources': sources, 'count': sources.length};
+  }
+
+  Future<Map<String, dynamic>> _ragStatus(Map<String, dynamic> _) async {
+    final rag = Get.find<RagService>();
+    final count = await rag.count();
+    return {'configured': rag.isConfigured, 'total_chunks': count};
+  }
+
+  Future<Map<String, dynamic>> _ragClear(Map<String, dynamic> args) async {
+    final source = args['source']?.toString();
+    final rag = Get.find<RagService>();
+    final deleted = source != null ? await rag.clearSource(source) : await rag.clearAll();
+    return {'ok': true, 'chunks_deleted': deleted};
+  }
 
   Future<Map<String, dynamic>> _getCalendarEvents(Map<String, dynamic> args) async {
     final permission = await Permission.calendar.request();

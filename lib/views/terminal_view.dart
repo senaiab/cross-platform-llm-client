@@ -11,21 +11,21 @@ class TerminalView extends GetView<TerminalController> {
   static const _green = Color(0xFF4AFF91);
   static const _dim = Color(0xFF6B6B6B);
   static const _white = Color(0xFFE8E8E8);
-  static const _red = Color(0xFFFF5F5F);
   static const _yellow = Color(0xFFFFD060);
+  static const _red = Color(0xFFFF5F5F);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: _bg,
-      body: SafeArea(child: _TerminalBody(controller: controller)),
+      body: SafeArea(child: _TerminalBody(ctrl: controller)),
     );
   }
 }
 
 class _TerminalBody extends StatefulWidget {
-  final TerminalController controller;
-  const _TerminalBody({required this.controller});
+  final TerminalController ctrl;
+  const _TerminalBody({required this.ctrl});
 
   @override
   State<_TerminalBody> createState() => _TerminalBodyState();
@@ -36,7 +36,7 @@ class _TerminalBodyState extends State<_TerminalBody> {
   final _focusNode = FocusNode();
   final _scrollCtrl = ScrollController();
 
-  TerminalController get ctrl => widget.controller;
+  TerminalController get ctrl => widget.ctrl;
 
   @override
   void dispose() {
@@ -49,7 +49,7 @@ class _TerminalBodyState extends State<_TerminalBody> {
   void _submit() {
     final cmd = _inputCtrl.text;
     _inputCtrl.clear();
-    ctrl.exec(cmd).then((_) => _scrollToBottom());
+    ctrl.sendLine(cmd);
     _scrollToBottom();
   }
 
@@ -58,7 +58,7 @@ class _TerminalBodyState extends State<_TerminalBody> {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
           _scrollCtrl.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 150),
+          duration: const Duration(milliseconds: 120),
           curve: Curves.easeOut,
         );
       }
@@ -67,21 +67,42 @@ class _TerminalBodyState extends State<_TerminalBody> {
 
   void _onKey(KeyEvent e) {
     if (e is! KeyDownEvent) return;
-    if (e.logicalKey == LogicalKeyboardKey.arrowUp) {
-      final h = ctrl.historyUp(_inputCtrl.text);
-      if (h != null) {
-        _inputCtrl.text = h;
-        _inputCtrl.selection =
-            TextSelection.collapsed(offset: h.length);
-      }
-    } else if (e.logicalKey == LogicalKeyboardKey.arrowDown) {
-      final h = ctrl.historyDown();
-      if (h != null) {
-        _inputCtrl.text = h;
-        _inputCtrl.selection =
-            TextSelection.collapsed(offset: h.length);
-      }
+    switch (e.logicalKey) {
+      case LogicalKeyboardKey.arrowUp:
+        final h = ctrl.historyUp();
+        if (h != null) {
+          _inputCtrl.text = h;
+          _inputCtrl.selection =
+              TextSelection.collapsed(offset: h.length);
+        }
+      case LogicalKeyboardKey.arrowDown:
+        final h = ctrl.historyDown();
+        if (h != null) {
+          _inputCtrl.text = h;
+          _inputCtrl.selection =
+              TextSelection.collapsed(offset: h.length);
+        }
     }
+  }
+
+  // Strip ANSI escape sequences and normalize line endings for display.
+  static final _ansiRe = RegExp(
+    r'\x1B(?:'
+    r'\[[0-?]*[ -/]*[@-~]'  // CSI sequences (colors, cursor, erase…)
+    r'|[PX^_].*?\x1B\\'     // DCS / SOS / PM / APC (string terminator)
+    r'|[()].'               // Character set designations
+    r'|[^@-Z\\-_]'         // Other two-char ESC sequences
+    r')',
+  );
+
+  String _render(String raw) {
+    final noAnsi = raw.replaceAll(_ansiRe, '');
+    // Handle \r: treat each \n-delimited line, take last segment after \r
+    final lines = noAnsi.split('\n');
+    return lines.map((l) {
+      final parts = l.split('\r');
+      return parts.last;
+    }).join('\n');
   }
 
   @override
@@ -92,16 +113,23 @@ class _TerminalBodyState extends State<_TerminalBody> {
         child: GestureDetector(
           onTap: () => _focusNode.requestFocus(),
           child: Obx(() {
-            final entries = ctrl.entries.toList();
+            // Read outputVersion to subscribe to updates.
+            ctrl.outputVersion.value;
+            final text = _render(ctrl.rawOutput);
             _scrollToBottom();
-            return ListView.builder(
+            return ListView(
               controller: _scrollCtrl,
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
-              itemCount: entries.length + (ctrl.isRunning.value ? 1 : 0),
-              itemBuilder: (_, i) {
-                if (i == entries.length) return _buildSpinner();
-                return _buildEntry(entries[i]);
-              },
+              children: [
+                SelectableText(
+                  text,
+                  style: GoogleFonts.sourceCodePro(
+                    fontSize: 13,
+                    color: TerminalView._white,
+                    height: 1.5,
+                  ),
+                ),
+              ],
             );
           }),
         ),
@@ -114,33 +142,54 @@ class _TerminalBodyState extends State<_TerminalBody> {
     return Container(
       height: 44,
       color: const Color(0xFF1A1A1A),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(children: [
-        const SizedBox(width: 12),
         _dot(const Color(0xFFFF5F57)),
         const SizedBox(width: 6),
         _dot(const Color(0xFFFFBD2E)),
         const SizedBox(width: 6),
         _dot(const Color(0xFF28CA41)),
-        const Spacer(),
-        Obx(() => Text(
-              ctrl.workDir.value
-                  .replaceFirst('/data/data/com.termux/files/home', '~'),
+        const SizedBox(width: 12),
+        Obx(() {
+          final connected = ctrl.isConnected.value;
+          final starting = ctrl.isStarting.value;
+          return Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(
+              width: 7,
+              height: 7,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: starting
+                    ? TerminalView._yellow
+                    : connected
+                        ? TerminalView._green
+                        : TerminalView._red,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              starting
+                  ? 'starting…'
+                  : connected
+                      ? 'bash  ·  interactive PTY'
+                      : 'disconnected',
               style: GoogleFonts.sourceCodePro(
                   fontSize: 12, color: TerminalView._dim),
-              overflow: TextOverflow.ellipsis,
-            )),
-        const SizedBox(width: 12),
-        GestureDetector(
-          onTap: () {
-            ctrl.entries.clear();
-          },
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text('clear',
-                style: GoogleFonts.sourceCodePro(
-                    fontSize: 12, color: TerminalView._dim)),
-          ),
-        ),
+            ),
+          ]);
+        }),
+        const Spacer(),
+        // Ctrl+C button
+        _iconBtn(Icons.stop_circle_outlined, TerminalView._red,
+            ctrl.sendCtrlC),
+        // Clear button
+        _iconBtn(Icons.cleaning_services_outlined, TerminalView._dim,
+            ctrl.clearOutput),
+        // Reconnect button
+        Obx(() => ctrl.isConnected.value
+            ? const SizedBox.shrink()
+            : _iconBtn(Icons.refresh_rounded, TerminalView._yellow,
+                ctrl.reconnect)),
       ]),
     );
   }
@@ -151,73 +200,19 @@ class _TerminalBodyState extends State<_TerminalBody> {
         decoration: BoxDecoration(color: c, shape: BoxShape.circle),
       );
 
-  Widget _buildEntry(TerminalEntry e) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        // Prompt + command line
-        RichText(
-          text: TextSpan(
-            style: GoogleFonts.sourceCodePro(fontSize: 13),
-            children: [
-              TextSpan(
-                text:
-                    'privatelm@local:${_shortDir(e.workDir)}\$ ',
-                style: const TextStyle(color: TerminalView._green),
-              ),
-              TextSpan(
-                  text: e.command,
-                  style: const TextStyle(color: TerminalView._white)),
-            ],
-          ),
+  Widget _iconBtn(IconData icon, Color color, VoidCallback onTap) =>
+      GestureDetector(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Icon(icon, size: 18, color: color),
         ),
-        if (e.output.isNotEmpty) ...[
-          const SizedBox(height: 3),
-          SelectableText(
-            e.output,
-            style: GoogleFonts.sourceCodePro(
-              fontSize: 13,
-              color: e.exitCode != 0
-                  ? TerminalView._red
-                  : TerminalView._white,
-              height: 1.5,
-            ),
-          ),
-        ],
-        if (e.exitCode != 0 && e.output.isEmpty)
-          Text(
-            'Exit ${ e.exitCode}',
-            style: GoogleFonts.sourceCodePro(
-                fontSize: 11, color: TerminalView._red),
-          ),
-      ]),
-    );
-  }
-
-  Widget _buildSpinner() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(children: [
-        const SizedBox(
-          width: 14,
-          height: 14,
-          child: CircularProgressIndicator(
-            strokeWidth: 1.5,
-            color: TerminalView._green,
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text('running…',
-            style: GoogleFonts.sourceCodePro(
-                fontSize: 12, color: TerminalView._dim)),
-      ]),
-    );
-  }
+      );
 
   Widget _buildInputBar() {
     return Obx(() {
-      final prompt = ctrl.prompt;
-      final running = ctrl.isRunning.value;
+      final connected = ctrl.isConnected.value;
+      final starting = ctrl.isStarting.value;
       return Container(
         color: const Color(0xFF111111),
         padding: EdgeInsets.only(
@@ -227,9 +222,11 @@ class _TerminalBodyState extends State<_TerminalBody> {
           bottom: MediaQuery.of(context).viewInsets.bottom + 8,
         ),
         child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-          Text(prompt,
-              style: GoogleFonts.sourceCodePro(
-                  fontSize: 13, color: TerminalView._green)),
+          Text(
+            r'$ ',
+            style: GoogleFonts.sourceCodePro(
+                fontSize: 13, color: TerminalView._green),
+          ),
           Expanded(
             child: KeyboardListener(
               focusNode: FocusNode(),
@@ -237,7 +234,7 @@ class _TerminalBodyState extends State<_TerminalBody> {
               child: TextField(
                 controller: _inputCtrl,
                 focusNode: _focusNode,
-                enabled: !running,
+                enabled: connected && !starting,
                 autofocus: false,
                 maxLines: null,
                 textInputAction: TextInputAction.send,
@@ -249,32 +246,33 @@ class _TerminalBodyState extends State<_TerminalBody> {
                   border: InputBorder.none,
                   isDense: true,
                   contentPadding: EdgeInsets.zero,
+                  hintText: 'type a command…',
+                  hintStyle: TextStyle(color: TerminalView._dim),
                 ),
               ),
             ),
           ),
-          if (running)
+          if (starting)
             const SizedBox(
               width: 16,
               height: 16,
               child: CircularProgressIndicator(
                   strokeWidth: 1.5, color: TerminalView._yellow),
             )
-          else
+          else if (connected)
             GestureDetector(
               onTap: _submit,
               child: const Icon(Icons.keyboard_return_rounded,
                   size: 18, color: TerminalView._dim),
+            )
+          else
+            GestureDetector(
+              onTap: ctrl.reconnect,
+              child: const Icon(Icons.refresh_rounded,
+                  size: 18, color: TerminalView._yellow),
             ),
         ]),
       );
     });
-  }
-
-  String _shortDir(String d) {
-    const home = '/data/data/com.termux/files/home';
-    if (d == home) return '~';
-    if (d.startsWith('$home/')) return '~/${d.substring(home.length + 1)}';
-    return d;
   }
 }

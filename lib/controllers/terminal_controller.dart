@@ -1,122 +1,154 @@
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
-class TerminalEntry {
-  final String command;
-  final String output;
-  final int exitCode;
-  final DateTime time;
-  final String workDir;
-
-  const TerminalEntry({
-    required this.command,
-    required this.output,
-    required this.exitCode,
-    required this.time,
-    required this.workDir,
-  });
-}
-
 class TerminalController extends GetxController {
-  static const _channel =
+  static const _mc =
       MethodChannel('com.orailnoor.privatelm/termux_bridge');
+  static const _port = 7681;
 
-  final entries = <TerminalEntry>[].obs;
-  final isRunning = false.obs;
-  final workDir = '/data/data/com.termux/files/home'.obs;
+  // Raw output buffer — UI reads outputVersion to know when to rebuild.
+  final _buf = StringBuffer();
+  final outputVersion = 0.obs;
+  final isConnected = false.obs;
+  final isStarting = false.obs;
+
+  WebSocket? _ws;
+  StreamSubscription<dynamic>? _sub;
 
   final _history = <String>[];
-  int _historyIndex = -1;
+  int _histIdx = -1;
 
-  String get prompt => 'privatelm@local:${_shortDir(workDir.value)}\$ ';
+  String get rawOutput => _buf.toString();
 
-  String _shortDir(String d) {
-    const home = '/data/data/com.termux/files/home';
-    if (d == home) return '~';
-    if (d.startsWith('$home/')) return '~/${d.substring(home.length + 1)}';
-    return d;
+  @override
+  void onInit() {
+    super.onInit();
+    _launch();
   }
 
-  Future<void> exec(String rawCmd) async {
-    final cmd = rawCmd.trim();
-    if (cmd.isEmpty) return;
-
-    _history.remove(cmd);
-    _history.add(cmd);
-    _historyIndex = -1;
-
-    if (cmd == 'clear') {
-      entries.clear();
-      return;
-    }
-
-    isRunning.value = true;
-    final dir = workDir.value;
-
-    try {
-      // Wrap cd commands so we can track the new working directory
-      final wrappedCmd = cmd.startsWith('cd ')
-          ? '$cmd && pwd'
-          : cmd.contains('\n')
-              ? cmd
-              : cmd;
-
-      final res = await _channel.invokeMapMethod<String, dynamic>('exec', {
-        'command': wrappedCmd,
-        'workDir': dir,
-        'timeout_ms': 60000,
-      });
-
-      final stdout = (res?['stdout'] as String? ?? '').trimRight();
-      final exitCode = (res?['exitCode'] as int?) ?? -1;
-
-      String output = stdout;
-      if (cmd.startsWith('cd ') && exitCode == 0) {
-        final lines = stdout.split('\n');
-        final newDir = lines.last.trim();
-        if (newDir.startsWith('/')) {
-          workDir.value = newDir;
-          output = lines.sublist(0, lines.length - 1).join('\n').trimRight();
-        }
-      }
-
-      entries.add(TerminalEntry(
-        command: cmd,
-        output: output,
-        exitCode: exitCode,
-        time: DateTime.now(),
-        workDir: dir,
-      ));
-    } catch (e) {
-      entries.add(TerminalEntry(
-        command: cmd,
-        output: 'Error: $e',
-        exitCode: -1,
-        time: DateTime.now(),
-        workDir: dir,
-      ));
-    } finally {
-      isRunning.value = false;
-    }
+  @override
+  void onClose() {
+    _sub?.cancel();
+    _ws?.close();
+    super.onClose();
   }
 
-  String? historyUp(String current) {
+  // ── Public API ──────────────────────────────────────────────────────────
+
+  void send(String raw) => _ws?.add(raw);
+
+  void sendLine(String cmd) {
+    if (cmd.isNotEmpty) {
+      _history.remove(cmd);
+      _history.add(cmd);
+      _histIdx = -1;
+    }
+    _ws?.add('$cmd\n');
+  }
+
+  void clearOutput() {
+    _buf.clear();
+    outputVersion.value++;
+  }
+
+  void sendCtrlC() => _ws?.add('\x03');
+  void sendCtrlD() => _ws?.add('\x04');
+  void sendCtrlL() {
+    _ws?.add('\x0c');
+    clearOutput();
+  }
+
+  String? historyUp() {
     if (_history.isEmpty) return null;
-    if (_historyIndex == -1) _historyIndex = _history.length;
-    if (_historyIndex > 0) {
-      _historyIndex--;
-      return _history[_historyIndex];
-    }
-    return _history.first;
+    if (_histIdx == -1) _histIdx = _history.length;
+    if (_histIdx > 0) _histIdx--;
+    return _history[_histIdx];
   }
 
   String? historyDown() {
-    if (_historyIndex == -1) return null;
-    _historyIndex++;
-    if (_historyIndex >= _history.length) {
-      _historyIndex = -1;
+    if (_histIdx == -1) return null;
+    _histIdx++;
+    if (_histIdx >= _history.length) {
+      _histIdx = -1;
       return '';
     }
-    return _history[_historyIndex];
+    return _history[_histIdx];
+  }
+
+  Future<void> reconnect() async {
+    _sub?.cancel();
+    await _ws?.close();
+    isConnected.value = false;
+    _buf.write('\r\n[Reconnecting…]\r\n');
+    outputVersion.value++;
+    await _startBridge();
+    await _connect();
+  }
+
+  // ── Internal ─────────────────────────────────────────────────────────────
+
+  Future<void> _launch() async {
+    isStarting.value = true;
+    await _deployScript();
+    await _startBridge();
+    await _connect();
+    isStarting.value = false;
+  }
+
+  Future<void> _deployScript() async {
+    try {
+      final src =
+          await rootBundle.loadString('assets/terminal_bridge.py');
+      final dest = File(
+          '/data/data/com.termux/files/home/.privatelm_bridge.py');
+      await dest.writeAsString(src);
+    } catch (e) {
+      _append('[deploy error] $e\r\n');
+    }
+  }
+
+  Future<void> _startBridge() async {
+    try {
+      await _mc.invokeMethod<dynamic>('exec', {
+        'command': 'pkill -f .privatelm_bridge.py 2>/dev/null; sleep 0.3; '
+            'nohup python3 ~/.privatelm_bridge.py '
+            '> ~/.privatelm_bridge.log 2>&1 &',
+        'timeout_ms': 5000,
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _connect() async {
+    for (int i = 0; i < 20; i++) {
+      await Future.delayed(const Duration(milliseconds: 400));
+      try {
+        final ws = await WebSocket.connect('ws://127.0.0.1:$_port')
+            .timeout(const Duration(seconds: 2));
+        _ws = ws;
+        _sub = ws.listen(
+          (data) => _append(data as String),
+          onDone: () {
+            isConnected.value = false;
+            _append('\r\n[disconnected — tap Reconnect]\r\n');
+          },
+          onError: (_) => isConnected.value = false,
+          cancelOnError: false,
+        );
+        isConnected.value = true;
+        return;
+      } catch (_) {}
+    }
+    _append(
+      '\r\n[ERROR] Could not start terminal bridge.\r\n'
+      'Ensure python3 is installed: pkg install python\r\n',
+    );
+    outputVersion.value++;
+  }
+
+  void _append(String s) {
+    _buf.write(s);
+    outputVersion.value++;
   }
 }

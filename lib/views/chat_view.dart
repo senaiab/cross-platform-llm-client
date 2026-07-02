@@ -9,6 +9,7 @@ import '../controllers/chat_controller.dart';
 import '../controllers/settings_controller.dart';
 import '../controllers/model_controller.dart';
 import '../controllers/home_controller.dart';
+import '../controllers/cloud_model_controller.dart';
 import '../services/inference_service.dart';
 import '../services/local_image_service.dart';
 import '../ffi/sd_ffi_bindings.dart';
@@ -146,35 +147,43 @@ class ChatView extends GetView<ChatController> {
                     color: isDark ? Colors.white : Colors.black),
                 overflow: TextOverflow.ellipsis),
             const SizedBox(height: 2),
-            Row(children: [
-              Container(
-                  width: 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isLocal
-                          ? (inf.isModelLoaded.value
-                              ? const Color(0xFF34C759)
-                              : const Color(0xFFFF9500))
-                          : _appleBlue(context))),
-              const SizedBox(width: 5),
-              Flexible(
-                  child: Text('$model · ${isLocal ? "Local" : "Cloud"}',
+            GestureDetector(
+              onTap: isLocal ? null : () => _showCloudModelPicker(context),
+              child: Row(children: [
+                Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isLocal
+                            ? (inf.isModelLoaded.value
+                                ? const Color(0xFF34C759)
+                                : const Color(0xFFFF9500))
+                            : _appleBlue(context))),
+                const SizedBox(width: 5),
+                Flexible(
+                    child: Text('$model · ${isLocal ? "Local" : "Cloud"}',
+                        style: GoogleFonts.inter(
+                            fontSize: 12,
+                            color: Theme.of(context).hintColor,
+                            fontWeight: FontWeight.w400),
+                        overflow: TextOverflow.ellipsis)),
+                if (!isLocal) ...[
+                  const SizedBox(width: 3),
+                  Icon(Icons.expand_more_rounded,
+                      size: 14, color: Theme.of(context).hintColor),
+                ],
+                if (isLocal && inf.isGpuAccelerated.value) ...[
+                  const SizedBox(width: 4),
+                  const Icon(Icons.bolt, size: 11, color: Color(0xFFFF9500)),
+                  Text('GPU',
                       style: GoogleFonts.inter(
-                          fontSize: 12,
-                          color: Theme.of(context).hintColor,
-                          fontWeight: FontWeight.w400),
-                      overflow: TextOverflow.ellipsis)),
-              if (isLocal && inf.isGpuAccelerated.value) ...[
-                const SizedBox(width: 4),
-                const Icon(Icons.bolt, size: 11, color: Color(0xFFFF9500)),
-                Text('GPU',
-                    style: GoogleFonts.inter(
-                        fontSize: 10,
-                        color: const Color(0xFFFF9500),
-                        fontWeight: FontWeight.w600)),
-              ],
-            ]),
+                          fontSize: 10,
+                          color: const Color(0xFFFF9500),
+                          fontWeight: FontWeight.w600)),
+                ],
+              ]),
+            ),
           ]),
         );
       }),
@@ -943,6 +952,16 @@ class ChatView extends GetView<ChatController> {
       : v >= 1000
           ? '${(v / 1000).toStringAsFixed(1)}K'
           : v.toString();
+
+  void _showCloudModelPicker(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => _CloudModelPickerSheet(isDark: isDark),
+    );
+  }
 }
 
 // ── Attach Button ──
@@ -1512,5 +1531,159 @@ class _BlinkingCursorState extends State<_BlinkingCursor>
                 decoration: BoxDecoration(
                     color: widget.color,
                     borderRadius: BorderRadius.circular(1)))));
+  }
+}
+
+// ── Cloud Model Picker ──
+class _CloudModelPickerSheet extends StatefulWidget {
+  final bool isDark;
+  const _CloudModelPickerSheet({required this.isDark});
+  @override
+  State<_CloudModelPickerSheet> createState() => _CloudModelPickerSheetState();
+}
+
+class _CloudModelPickerSheetState extends State<_CloudModelPickerSheet> {
+  late CloudModelController _cmc;
+  late SettingsController _settings;
+  late String _selectedProvider;
+
+  @override
+  void initState() {
+    super.initState();
+    _cmc = Get.find<CloudModelController>();
+    _settings = Get.find<SettingsController>();
+    _selectedProvider = _settings.cloudProvider.value;
+  }
+
+  List<String> get _models {
+    final cached = _cmc.modelsByProvider[_selectedProvider];
+    if (cached != null && cached.isNotEmpty) return cached;
+    return CloudModelController.defaultModelsFor(_selectedProvider);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = widget.isDark ? const Color(0xFF1C1C1E) : Colors.white;
+    final divider = widget.isDark
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.08);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom + 24),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(height: 8),
+        Container(
+            width: 36,
+            height: 4,
+            decoration: BoxDecoration(
+                color: widget.isDark
+                    ? Colors.white.withValues(alpha: 0.2)
+                    : Colors.black.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(2))),
+        const SizedBox(height: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Text('Switch Model',
+              style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: widget.isDark ? Colors.white : Colors.black)),
+        ),
+        const SizedBox(height: 12),
+        // Provider chips
+        SizedBox(
+          height: 36,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _cmc.providers.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (_, i) {
+              final p = _cmc.providers[i];
+              final active = p.id == _selectedProvider;
+              return GestureDetector(
+                onTap: () => setState(() => _selectedProvider = p.id),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: active
+                        ? _appleBlue(context)
+                        : (widget.isDark
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.06)),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(p.name,
+                      style: GoogleFonts.inter(
+                          fontSize: 13,
+                          fontWeight:
+                              active ? FontWeight.w600 : FontWeight.w400,
+                          color: active
+                              ? Colors.white
+                              : (widget.isDark ? Colors.white : Colors.black))),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Divider(color: divider, height: 1),
+        ConstrainedBox(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.4),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: _models.length,
+            itemBuilder: (_, i) {
+              final m = _models[i];
+              final currentModel = _cmc.activeModelFor(_selectedProvider);
+              final isActive = m == currentModel &&
+                  _selectedProvider == _settings.cloudProvider.value;
+              return InkWell(
+                onTap: () async {
+                  await _cmc.selectModel(_selectedProvider, m,
+                      showSnackbar: false);
+                  if (context.mounted) Navigator.of(context).pop();
+                  Get.snackbar(
+                    'Model switched',
+                    m,
+                    snackPosition: SnackPosition.BOTTOM,
+                    duration: const Duration(seconds: 2),
+                  );
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 12),
+                  child: Row(children: [
+                    Expanded(
+                        child: Text(m,
+                            style: GoogleFonts.inter(
+                                fontSize: 14,
+                                fontWeight: isActive
+                                    ? FontWeight.w600
+                                    : FontWeight.w400,
+                                color: isActive
+                                    ? _appleBlue(context)
+                                    : (widget.isDark
+                                        ? Colors.white
+                                        : Colors.black)))),
+                    if (isActive)
+                      Icon(Icons.check_rounded,
+                          size: 18, color: _appleBlue(context)),
+                  ]),
+                ),
+              );
+            },
+          ),
+        ),
+      ]),
+    );
   }
 }

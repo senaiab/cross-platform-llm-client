@@ -198,6 +198,9 @@ class CloudModelController extends GetxController {
     return apiKeyFor(provider).isNotEmpty;
   }
 
+  static List<String> defaultModelsFor(String provider) =>
+      _defaultModelsByProvider[provider] ?? const [];
+
   String statusLabel(String provider) {
     return isConfigured(provider) ? 'Connected' : 'Needs Key';
   }

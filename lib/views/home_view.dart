@@ -7,6 +7,7 @@ import 'chat_view.dart';
 import 'model_view.dart';
 import 'server_view.dart';
 import 'settings_view.dart';
+import 'terminal_view.dart';
 
 class HomeView extends GetView<HomeController> {
   const HomeView({super.key});
@@ -20,6 +21,10 @@ class HomeView extends GetView<HomeController> {
         icon: Icons.arrow_downward_rounded,
         activeIcon: Icons.arrow_downward_rounded,
         label: 'Models'),
+    _NavItem(
+        icon: Icons.terminal_outlined,
+        activeIcon: Icons.terminal,
+        label: 'Terminal'),
     _NavItem(
         icon: Icons.dns_outlined,
         activeIcon: Icons.dns_rounded,
@@ -49,8 +54,9 @@ class HomeView extends GetView<HomeController> {
           children: const [
             ChatView(),
             ModelView(),
+            TerminalView(),
             ServerView(),
-            SettingsView()
+            SettingsView(),
           ],
         );
         if (_isWide) {

@@ -563,7 +563,7 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     Map<String, dynamic> args,
   ) async {
     final response = await http
-        .get(Uri.parse('https://ipapi.co/json/'))
+        .get(Uri.parse('http://ip-api.com/json/?fields=status,city,regionName,country,lat,lon,timezone,query'))
         .timeout(const Duration(seconds: 15));
     if (response.statusCode != 200) {
       return {
@@ -574,17 +574,17 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     }
 
     final data = jsonDecode(response.body);
-    if (data is! Map) {
+    if (data is! Map || data['status'] != 'success') {
       return {'error': 'invalid_location_response'};
     }
 
     return {
       'source': 'ip_geolocation',
       'city': data['city'],
-      'region': data['region'],
-      'country': data['country_name'],
-      'latitude': data['latitude'],
-      'longitude': data['longitude'],
+      'region': data['regionName'],
+      'country': data['country'],
+      'latitude': data['lat'],
+      'longitude': data['lon'],
       'timezone': data['timezone'],
       'accuracy': 'approximate',
     };

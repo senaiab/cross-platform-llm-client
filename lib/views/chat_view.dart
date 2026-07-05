@@ -696,6 +696,39 @@ class ChatView extends GetView<ChatController> {
                   context: context,
                 );
               }),
+              // Deep reasoning toggle (local LLM mode only)
+              Obx(() {
+                final settings = Get.find<SettingsController>();
+                final isLocal = settings.inferenceMode.value == 'local';
+                if (!isLocal) return const SizedBox.shrink();
+                final enabled = controller.deepReasoningEnabled.value;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: GestureDetector(
+                    onTap: controller.toggleDeepReasoning,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: enabled
+                            ? const Color(0xFF9B59B6).withValues(alpha: 0.85)
+                            : (isDark
+                                ? Colors.white.withValues(alpha: 0.08)
+                                : Colors.black.withValues(alpha: 0.06)),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.psychology_rounded,
+                        size: 18,
+                        color: enabled
+                            ? Colors.white
+                            : Theme.of(context).hintColor,
+                      ),
+                    ),
+                  ),
+                );
+              }),
               // Text field
               Expanded(
                   child: Container(

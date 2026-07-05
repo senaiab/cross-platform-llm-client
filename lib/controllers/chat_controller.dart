@@ -25,6 +25,7 @@ import '../services/app_log_service.dart';
 import '../services/image_generation_notification_service.dart';
 import '../services/document_extractor_service.dart';
 import '../services/tool_calling_service.dart';
+import '../services/reasoning_service.dart';
 import '../utils/thought_parser.dart';
 import '../widgets/tool_approval_dialog.dart';
 
@@ -95,6 +96,13 @@ class ChatController extends GetxController {
   bool _followStreaming = true;
   bool _scrollListenerAttached = false;
   int _generationSerial = 0;
+
+  // ─── Reasoning Features ─────────────────────────
+  final deepReasoningEnabled = false.obs;
+  final currentTaskMode = TaskMode.general.obs;
+
+  void toggleDeepReasoning() =>
+      deepReasoningEnabled.value = !deepReasoningEnabled.value;
 
   @override
   void onInit() {
@@ -608,6 +616,10 @@ class ChatController extends GetxController {
           )
           .toList();
 
+      // Detect task mode once — used in both local and cloud branches
+      final taskMode = ReasoningService.detectMode(effectiveText);
+      currentTaskMode.value = taskMode;
+
       if (inferenceMode == 'local') {
         final localImage = Get.find<LocalImageService>();
 
@@ -707,25 +719,64 @@ class ChatController extends GetxController {
           // LiteRT models can consume image/audio attachments. GGUF currently
           // returns a clear unsupported message from the inference layer.
 
-          rawResponse = await inference.generate(
-            prompt: effectiveText,
-            systemPrompt: _effectiveSystemPrompt,
-            conversationHistory: history,
-            source: 'chat',
-            imagePath: imagePath,
-            audioPath: fileType == 'audio' ? filePath : null,
-            onToken: (token) {
-              // Real-time streaming update
-              streamingResponse.value += token;
-              trackThoughtTiming();
-              _scrollToBottom();
-            },
-          );
+          final modeSystemPrompt = _effectiveSystemPromptForMode(taskMode);
+
+          void onTokenCallback(String token) {
+            streamingResponse.value += token;
+            trackThoughtTiming();
+            _scrollToBottom();
+          }
+
+          if (deepReasoningEnabled.value) {
+            // Planner → Worker → Checker 3-pass reasoning
+            rawResponse = await _runPlannerWorkerChecker(
+              userMessage: effectiveText,
+              history: history,
+              inference: inference,
+              sysPrompt: modeSystemPrompt,
+              generationId: generationId,
+              onToken: onTokenCallback,
+            );
+          } else {
+            rawResponse = await inference.generate(
+              prompt: effectiveText,
+              systemPrompt: modeSystemPrompt,
+              conversationHistory: history,
+              source: 'chat',
+              imagePath: imagePath,
+              audioPath: fileType == 'audio' ? filePath : null,
+              onToken: onTokenCallback,
+            );
+
+            // Weak answer escalation (only when deep reasoning is OFF)
+            if (generationId == _generationSerial &&
+                ReasoningService.isWeakAnswer(rawResponse)) {
+              streamingResponse.value = '';
+              await inference.resetConversation();
+              final escalationHistory = [
+                ...history,
+                {'role': 'assistant', 'content': rawResponse},
+                {
+                  'role': 'user',
+                  'content': ReasoningService.escalationPrefix(rawResponse),
+                },
+              ];
+              rawResponse = await inference.generate(
+                prompt: ReasoningService.escalationPrefix(rawResponse),
+                systemPrompt: modeSystemPrompt,
+                conversationHistory: escalationHistory,
+                source: 'chat',
+                imagePath: imagePath,
+                audioPath: fileType == 'audio' ? filePath : null,
+                onToken: onTokenCallback,
+              );
+            }
+          }
         }
       } else {
         final cloud = Get.find<CloudService>();
         final apiMessages = [
-          {'role': 'system', 'content': _effectiveSystemPrompt},
+          {'role': 'system', 'content': _effectiveSystemPromptForMode(taskMode)},
           ...history,
         ];
         rawResponse = await cloud.sendMessage(
@@ -939,6 +990,65 @@ class ChatController extends GetxController {
         ? inference.loadedModelName.value
         : settings.selectedCloudModelName;
     return '${settings.effectiveSystemPromptForModel(modelName)}\n\n${ToolCallingService.protocolPrompt}\n\n${ToolCallingService.planningPrompt}';
+  }
+
+  String _effectiveSystemPromptForMode(TaskMode mode) {
+    final base = _effectiveSystemPrompt;
+    final addition = ReasoningService.systemAdditionForMode(mode);
+    const checklist = ReasoningService.qualityChecklist;
+    if (addition.isEmpty) {
+      return '$base\n\n$checklist';
+    }
+    return '$base\n\n$addition\n\n$checklist';
+  }
+
+  Future<String> _runPlannerWorkerChecker({
+    required String userMessage,
+    required List<Map<String, String>> history,
+    required InferenceService inference,
+    required String sysPrompt,
+    required int generationId,
+    required void Function(String token) onToken,
+  }) async {
+    // Stage 1 — Planner (silent, no streaming shown)
+    streamingResponse.value = '📋 Analyzing…';
+    await inference.resetConversation();
+    final plan = await inference.generate(
+      prompt: userMessage,
+      systemPrompt: '$sysPrompt\n\n${ReasoningService.plannerInstruction}',
+      conversationHistory: history,
+      source: 'chat',
+    );
+
+    if (generationId != _generationSerial) return plan;
+
+    // Stage 2 — Worker (streamed to user)
+    streamingResponse.value = '';
+    await inference.resetConversation();
+    final draft = await inference.generate(
+      prompt: userMessage,
+      systemPrompt:
+          '$sysPrompt\n\n${ReasoningService.workerInstruction(plan)}',
+      conversationHistory: history,
+      source: 'chat',
+      onToken: onToken,
+    );
+
+    if (generationId != _generationSerial) return draft;
+
+    // Stage 3 — Checker (clears and re-streams final answer)
+    streamingResponse.value = '';
+    await inference.resetConversation();
+    final finalAnswer = await inference.generate(
+      prompt: userMessage,
+      systemPrompt:
+          '$sysPrompt\n\n${ReasoningService.checkerInstruction(draft)}',
+      conversationHistory: history,
+      source: 'chat',
+      onToken: onToken,
+    );
+
+    return finalAnswer;
   }
 
   Future<String> _resolveToolCalls({

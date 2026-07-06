@@ -21,6 +21,7 @@ import 'package:xml/xml.dart';
 
 import '../core/constants.dart';
 import 'app_log_service.dart';
+import 'cloud_service.dart';
 import 'device_info_service.dart';
 import 'document_extractor_service.dart';
 import 'hive_service.dart';

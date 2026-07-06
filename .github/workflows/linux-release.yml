@@ -39,6 +39,8 @@ jobs:
               path: linux_stubs/firebase_core
             firebase_crashlytics:
               path: linux_stubs/firebase_crashlytics
+            llama_flutter_android:
+              path: local_plugins/llama_flutter_android
           EOF
 
       - name: Resolve dependencies

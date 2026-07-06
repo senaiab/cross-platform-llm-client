@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+export 'sd_flutter_android_linux.dart';
 
 class SdFlutterAndroid {
   static const MethodChannel _channel = MethodChannel('sd_flutter_android');

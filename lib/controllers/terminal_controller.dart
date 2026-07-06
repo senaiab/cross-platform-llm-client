@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
@@ -16,6 +17,13 @@ class TerminalController extends GetxController {
 
   WebSocket? _ws;
   StreamSubscription<dynamic>? _sub;
+  String? _authToken;
+
+  static String _generateToken() {
+    final rand = Random.secure();
+    final bytes = List<int>.generate(32, (_) => rand.nextInt(256));
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+  }
 
   final _history = <String>[];
   int _histIdx = -1;
@@ -104,6 +112,15 @@ class TerminalController extends GetxController {
       final dest = File(
           '/data/data/com.termux/files/home/.privatelm_bridge.py');
       await dest.writeAsString(src);
+
+      _authToken = _generateToken();
+      final tokenDest = File(
+          '/data/data/com.termux/files/home/.privatelm_bridge.token');
+      await tokenDest.writeAsString(_authToken!);
+      await _mc.invokeMethod<dynamic>('exec', {
+        'command': 'chmod 600 ~/.privatelm_bridge.token',
+        'timeout_ms': 5000,
+      });
     } catch (e) {
       _append('[deploy error] $e\r\n');
     }
@@ -127,6 +144,11 @@ class TerminalController extends GetxController {
         final ws = await WebSocket.connect('ws://127.0.0.1:$_port')
             .timeout(const Duration(seconds: 2));
         _ws = ws;
+        if (_authToken == null) {
+          await ws.close();
+          throw StateError('no auth token generated');
+        }
+        ws.add(_authToken!);
         _sub = ws.listen(
           (data) => _append(data as String),
           onDone: () {

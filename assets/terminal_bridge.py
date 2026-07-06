@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
-"""PrivateLM terminal bridge — PTY over WebSocket on ws://127.0.0.1:7681"""
-import asyncio, os, pty, subprocess, sys, signal
+"""PrivateLM terminal bridge — PTY over WebSocket on ws://127.0.0.1:7681
+
+Auth: the first WebSocket message must equal the contents of
+TOKEN_PATH, written by the app immediately before this script is
+started. Connections that don't authenticate within AUTH_TIMEOUT
+seconds, or send the wrong token, are closed before any shell is
+spawned.
+"""
+import asyncio, hmac, os, pty, subprocess, sys, signal
 
 try:
     import websockets
@@ -12,10 +19,26 @@ except ImportError:
     import websockets
 
 SHELL = '/data/data/com.termux/files/usr/bin/bash'
+if not os.path.exists(SHELL):
+    SHELL = '/bin/bash'
 HOST  = '127.0.0.1'
 PORT  = 7681
+TOKEN_PATH = os.path.expanduser('~/.privatelm_bridge.token')
+AUTH_TIMEOUT = 5
+
+with open(TOKEN_PATH, 'r') as f:
+    EXPECTED_TOKEN = f.read().strip()
 
 async def handle(ws):
+    try:
+        first = await asyncio.wait_for(ws.recv(), timeout=AUTH_TIMEOUT)
+    except Exception:
+        await ws.close(code=4001, reason='auth timeout')
+        return
+    if not isinstance(first, str) or not hmac.compare_digest(first, EXPECTED_TOKEN):
+        await ws.close(code=4001, reason='unauthorized')
+        return
+
     master_fd, slave_fd = pty.openpty()
     env = os.environ.copy()
     env.update({'TERM': 'xterm-256color', 'COLORTERM': 'truecolor'})

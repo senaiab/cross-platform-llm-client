@@ -1,14 +1,12 @@
 import 'dart:async';
 import 'dart:ui';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-// import 'firebase_options.dart';
 import 'controllers/settings_controller.dart';
 import 'controllers/cloud_model_controller.dart';
 import 'controllers/server_controller.dart';
@@ -48,15 +46,6 @@ void main() {
       appLogBuffer.clear();
 
       appLog.info('App started');
-
-      // Initialize Firebase before any Firebase-dependent services
-      try {
-        // await Firebase.initializeApp(
-        //   options: DefaultFirebaseOptions.currentPlatform,
-        // );
-      } catch (e) {
-        appLog.error('[Firebase] Initialization failed', details: e);
-      }
 
       // Lock to portrait (mobile only)
       if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {

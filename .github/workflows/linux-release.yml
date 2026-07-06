@@ -31,6 +31,16 @@ jobs:
             clang libblkid-dev liblzma-dev libsecret-1-dev \
             libjsoncpp-dev libglib2.0-dev
 
+      - name: Override Firebase with Linux stubs
+        run: |
+          cat > pubspec_overrides.yaml << 'EOF'
+          dependency_overrides:
+            firebase_core:
+              path: linux_stubs/firebase_core
+            firebase_crashlytics:
+              path: linux_stubs/firebase_crashlytics
+          EOF
+
       - name: Resolve dependencies
         run: flutter pub get
 

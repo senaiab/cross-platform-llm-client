@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -587,6 +588,10 @@ class SettingsController extends GetxController {
   }
 
   Future<void> _detectImageGpu() async {
+    if (!Platform.isAndroid) {
+      imageGpuVendor.value = 'unknown';
+      return;
+    }
     try {
       imageGpuVendor.value = await SdFlutterAndroid.detectGpuVendor();
     } catch (_) {

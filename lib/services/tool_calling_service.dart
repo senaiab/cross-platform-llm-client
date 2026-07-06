@@ -457,10 +457,12 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('read_sqlite', ToolRisk.readOnly, _readSqlite);
     _register('read_pptx', ToolRisk.readOnly, _readPptx);
     _register('write_docx', ToolRisk.write, _writeDocx);
-    _register('get_calendar_events', ToolRisk.readOnly, _getCalendarEvents);
-    _register('create_calendar_event', ToolRisk.write, _createCalendarEvent);
-    _register('get_contacts', ToolRisk.readOnly, _getContacts);
-    _register('search_contacts', ToolRisk.readOnly, _searchContacts);
+    if (Platform.isAndroid || Platform.isIOS) {
+      _register('get_calendar_events', ToolRisk.readOnly, _getCalendarEvents);
+      _register('create_calendar_event', ToolRisk.write, _createCalendarEvent);
+      _register('get_contacts', ToolRisk.readOnly, _getContacts);
+      _register('search_contacts', ToolRisk.readOnly, _searchContacts);
+    }
     _register('rag_set_embed_model', ToolRisk.write, _ragSetEmbedModel);
     _register('rag_index_file', ToolRisk.write, _ragIndexFile);
     _register('rag_index_text', ToolRisk.write, _ragIndexText);
@@ -1595,6 +1597,7 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   }
 
   Future<Map<String, dynamic>> _getCalendarEvents(Map<String, dynamic> args) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return {'error': 'Calendar not available on this platform.'};
     final permission = await Permission.calendar.request();
     if (!permission.isGranted) return {'error': 'Calendar permission denied'};
     final plugin = DeviceCalendarPlugin();
@@ -1615,6 +1618,7 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   }
 
   Future<Map<String, dynamic>> _createCalendarEvent(Map<String, dynamic> args) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return {'error': 'Calendar not available on this platform.'};
     final permission = await Permission.calendar.request();
     if (!permission.isGranted) return {'error': 'Calendar permission denied'};
     final plugin = DeviceCalendarPlugin();
@@ -1633,6 +1637,7 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   }
 
   Future<Map<String, dynamic>> _getContacts(Map<String, dynamic> args) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return {'error': 'Contacts not available on this platform.'};
     final granted = await FlutterContacts.requestPermission();
     if (!granted) return {'error': 'Contacts permission denied'};
     final contacts = await FlutterContacts.getContacts(withProperties: true);
@@ -1646,6 +1651,7 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   }
 
   Future<Map<String, dynamic>> _searchContacts(Map<String, dynamic> args) async {
+    if (!Platform.isAndroid && !Platform.isIOS) return {'error': 'Contacts not available on this platform.'};
     final query = _stringArg(args, 'query').toLowerCase();
     final granted = await FlutterContacts.requestPermission();
     if (!granted) return {'error': 'Contacts permission denied'};

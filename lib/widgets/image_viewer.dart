@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
@@ -39,19 +40,36 @@ class _ImageViewerState extends State<ImageViewer> {
   Future<void> _download() async {
     setState(() => _isSaving = true);
     try {
-      // Request permission if needed
-      final hasAccess = await Gal.hasAccess();
-      if (!hasAccess) {
-        await Gal.requestAccess();
-      }
-      await Gal.putImageBytes(_bytes);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Image saved to gallery'),
-            duration: Duration(seconds: 2),
-          ),
-        );
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        // Mobile: save to gallery via Gal
+        final hasAccess = await Gal.hasAccess();
+        if (!hasAccess) {
+          await Gal.requestAccess();
+        }
+        await Gal.putImageBytes(_bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image saved to gallery'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      } else {
+        // Desktop/web: save to documents directory
+        final dir = await getApplicationDocumentsDirectory();
+        final fileName =
+            'privatelm_${DateTime.now().millisecondsSinceEpoch}.png';
+        final file = File('${dir.path}/$fileName');
+        await file.writeAsBytes(_bytes);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Image saved to ${file.path}'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     } on GalException catch (e) {
       if (mounted) {

@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -58,7 +59,7 @@ void main() {
       }
 
       // Lock to portrait (mobile only)
-      if (!kIsWeb) {
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
         await SystemChrome.setPreferredOrientations([
           DeviceOrientation.portraitUp,
         ]);

@@ -1076,9 +1076,11 @@ class ChatController extends GetxController {
       final toolHistory = List<Map<String, String>>.from(baseHistory);
       final originalUserRequest = _lastUserContent(baseHistory);
       final toolMode = _toolModeForRequest(originalUserRequest);
-      final maxRounds = toolMode == ToolCallingMode.agent
-          ? ToolCallingService.agentMaxRounds
-          : ToolCallingService.planMaxRounds;
+      final maxRounds = switch (toolMode) {
+        ToolCallingMode.subagent => ToolCallingService.subagentMaxRounds,
+        ToolCallingMode.agent => ToolCallingService.agentMaxRounds,
+        _ => ToolCallingService.planMaxRounds,
+      };
       final stepOutputs = <int, String>{};
       int stepNum = 0;
 
@@ -1145,6 +1147,7 @@ class ChatController extends GetxController {
 
   ToolCallingMode _toolModeForRequest(String? request) {
     final text = request?.toLowerCase() ?? '';
+    if (text.contains('subagent mode')) return ToolCallingMode.subagent;
     if (text.contains('agent mode')) return ToolCallingMode.agent;
     if (text.contains('build mode')) return ToolCallingMode.build;
     return ToolCallingMode.plan;

@@ -27,7 +27,7 @@ import 'hive_service.dart';
 import 'mcp_service.dart';
 import 'rag_service.dart';
 
-enum ToolCallingMode { plan, build, agent }
+enum ToolCallingMode { plan, build, agent, subagent }
 
 enum ToolRisk { readOnly, write, shell, network, external }
 
@@ -38,6 +38,7 @@ class ToolCallingService extends GetxService {
 
   static const int planMaxRounds = 8;
   static const int agentMaxRounds = 16;
+  static const int subagentMaxRounds = 32;
 
   static const List<String> advertisedCoreTools = [
     'web_search',
@@ -89,6 +90,7 @@ class ToolCallingService extends GetxService {
     'rag_search',
     'rag_list_sources',
     'rag_status',
+    'spawn_agent',
   ];
 
   static const List<String> allToolNames = [
@@ -189,6 +191,7 @@ class ToolCallingService extends GetxService {
     'rag_list_sources',
     'rag_status',
     'rag_clear',
+    'spawn_agent',
   ];
 
   static const String planningPrompt = '''
@@ -343,8 +346,10 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   }
 
   bool _isAllowed(_RegisteredTool tool, ToolCallingMode mode) {
-    if (mode != ToolCallingMode.plan) return true;
-    return tool.risk == ToolRisk.readOnly || tool.risk == ToolRisk.network;
+    if (mode == ToolCallingMode.plan) {
+      return tool.risk == ToolRisk.readOnly || tool.risk == ToolRisk.network;
+    }
+    return true;
   }
 
   ToolCallRequest? _parseTaggedToolCall(String text) {
@@ -470,6 +475,7 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     _register('rag_list_sources', ToolRisk.readOnly, _ragListSources);
     _register('rag_status', ToolRisk.readOnly, _ragStatus);
     _register('rag_clear', ToolRisk.write, _ragClear);
+    _register('spawn_agent', ToolRisk.network, _spawnAgent);
 
     for (final name in allToolNames) {
       _tools.putIfAbsent(
@@ -1594,6 +1600,58 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
     final rag = Get.find<RagService>();
     final deleted = source != null ? await rag.clearSource(source) : await rag.clearAll();
     return {'ok': true, 'chunks_deleted': deleted};
+  }
+
+  Future<Map<String, dynamic>> _spawnAgent(Map<String, dynamic> args) async {
+    final role = args['role']?.toString() ?? 'general assistant';
+    final task = args['task']?.toString() ?? '';
+    final maxRounds = (args['max_rounds'] as num?)?.toInt() ?? agentMaxRounds;
+
+    if (task.isEmpty) return {'error': 'task is required'};
+
+    final CloudService cloud;
+    try {
+      cloud = Get.find<CloudService>();
+    } catch (_) {
+      return {'error': 'CloudService not available'};
+    }
+    if (!cloud.isConfigured) {
+      return {'error': 'Cloud API not configured — subagents require cloud mode. Add an API key in Settings.'};
+    }
+
+    final systemPrompt = 'You are a specialized AI agent. Role: $role\n\n$protocolPrompt';
+    final history = <Map<String, String>>[
+      {'role': 'system', 'content': systemPrompt},
+      {'role': 'user', 'content': task},
+    ];
+
+    var response = await cloud.sendMessage(messages: history);
+
+    for (var round = 0; round < maxRounds; round++) {
+      final request = parseToolCall(response);
+      if (request == null) break;
+
+      Map<String, dynamic> toolResult;
+      try {
+        toolResult = await callTool(request.name, request.arguments, mode: ToolCallingMode.agent);
+      } catch (e) {
+        toolResult = {'error': e.toString()};
+      }
+
+      final rendered = renderToolResultForModel(request, toolResult);
+      history
+        ..add({'role': 'assistant', 'content': response})
+        ..add({'role': 'user', 'content': rendered});
+
+      response = await cloud.sendMessage(messages: history);
+    }
+
+    Get.find<AppLogService>().info(
+      '[spawn_agent] Subagent completed',
+      details: 'role=$role, rounds_used=${history.length ~/ 2}',
+    );
+
+    return {'result': response, 'role': role};
   }
 
   Future<Map<String, dynamic>> _getCalendarEvents(Map<String, dynamic> args) async {

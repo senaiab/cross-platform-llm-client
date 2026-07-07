@@ -194,6 +194,65 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+        setupTermuxBridge(flutterEngine)
+    }
+
+    private fun setupTermuxBridge(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.orailnoor.privatelm/termux_bridge")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "exec" -> {
+                        val command = call.argument<String>("command") ?: ""
+                        val workDir = call.argument<String>("workDir")
+                        val timeoutMs = call.argument<Int>("timeout_ms") ?: 30000
+                        execViaTermux(command, workDir, timeoutMs.toLong(), result)
+                    }
+                    "check" -> {
+                        val isTermux = System.getenv("PREFIX")?.contains("com.termux") == true
+                        result.success(mapOf("termux" to isTermux, "prefix" to System.getenv("PREFIX"), "home" to System.getenv("HOME")))
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+    }
+
+    private fun execViaTermux(command: String, workDir: String?, timeoutMs: Long, result: MethodChannel.Result) {
+        val outFile = File(cacheDir, "termux_out_${System.currentTimeMillis()}.txt")
+        val doneFile = File(cacheDir, "termux_done_${System.currentTimeMillis()}.txt")
+        val wrappedCmd = buildString {
+            if (workDir != null) append("cd ${workDir.replace("'", "'\\''")} && ")
+            append("( $command ) > '${outFile.absolutePath}' 2>&1; echo \$? > '${doneFile.absolutePath}'")
+        }
+        val intent = Intent().apply {
+            setClassName("com.termux", "com.termux.app.RunCommandService")
+            action = "com.termux.RUN_COMMAND"
+            putExtra("com.termux.RUN_COMMAND_PATH", "/data/data/com.termux/files/usr/bin/bash")
+            putExtra("com.termux.RUN_COMMAND_ARGUMENTS", arrayOf("-c", wrappedCmd))
+            putExtra("com.termux.RUN_COMMAND_WORKDIR", workDir ?: "/data/data/com.termux/files/home")
+            putExtra("com.termux.RUN_COMMAND_TERMINAL", false)
+        }
+        try {
+            startForegroundService(intent)
+        } catch (_: Exception) {
+            startService(intent)
+        }
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        executor.execute {
+            val deadline = System.currentTimeMillis() + timeoutMs
+            var exitCode = -1
+            while (System.currentTimeMillis() < deadline) {
+                if (doneFile.exists()) {
+                    exitCode = doneFile.readText().trim().toIntOrNull() ?: -1
+                    break
+                }
+                Thread.sleep(300)
+            }
+            val stdout = if (outFile.exists()) outFile.readText() else ""
+            outFile.delete()
+            doneFile.delete()
+            val response = mapOf("exitCode" to exitCode, "stdout" to stdout, "stderr" to "")
+            android.os.Handler(mainLooper).post { result.success(response) }
+        }
     }
 
     private fun startTunnelAsync(

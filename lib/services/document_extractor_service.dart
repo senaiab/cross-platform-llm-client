@@ -15,6 +15,11 @@ class DocumentExtractorService {
         return _extractPdf(path);
       case 'docx':
         return _extractDocx(path);
+      case 'xlsx':
+      case 'xls':
+        return _extractXlsx(path);
+      case 'pptx':
+        return _extractPptx(path);
       case 'txt':
       case 'md':
       case 'json':
@@ -73,5 +78,66 @@ class DocumentExtractorService {
     return paragraphs.isNotEmpty
         ? paragraphs.join('\n\n')
         : document.findAllElements('w:t').map((e) => e.value).join();
+  }
+
+  static Future<String> _extractXlsx(String path) async {
+    final bytes = await File(path).readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+
+    // Load shared strings table
+    final sharedStringsFile = archive.files
+        .where((f) => f.name == 'xl/sharedStrings.xml')
+        .firstOrNull;
+    final sharedStrings = <String>[];
+    if (sharedStringsFile != null) {
+      final xml = XmlDocument.parse(utf8.decode(sharedStringsFile.content as List<int>));
+      for (final si in xml.findAllElements('si')) {
+        sharedStrings.add(si.findAllElements('t').map((e) => e.innerText).join());
+      }
+    }
+
+    // Find all sheet files
+    final sheetFiles = archive.files
+        .where((f) => f.name.startsWith('xl/worksheets/sheet') && f.name.endsWith('.xml'))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    final buffer = StringBuffer();
+    for (final sheet in sheetFiles) {
+      final xml = XmlDocument.parse(utf8.decode(sheet.content as List<int>));
+      for (final row in xml.findAllElements('row')) {
+        final cells = <String>[];
+        for (final cell in row.findAllElements('c')) {
+          final t = cell.getAttribute('t');
+          final v = cell.findAllElements('v').firstOrNull?.innerText ?? '';
+          if (t == 's') {
+            final idx = int.tryParse(v) ?? -1;
+            cells.add(idx >= 0 && idx < sharedStrings.length ? sharedStrings[idx] : '');
+          } else {
+            cells.add(v);
+          }
+        }
+        if (cells.any((c) => c.isNotEmpty)) buffer.writeln(cells.join('\t'));
+      }
+      buffer.writeln();
+    }
+    return buffer.toString().trim();
+  }
+
+  static Future<String> _extractPptx(String path) async {
+    final bytes = await File(path).readAsBytes();
+    final archive = ZipDecoder().decodeBytes(bytes);
+    final slideFiles = archive.files
+        .where((f) => f.name.startsWith('ppt/slides/slide') && f.name.endsWith('.xml'))
+        .toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    final buffer = StringBuffer();
+    for (final slide in slideFiles) {
+      final xml = XmlDocument.parse(utf8.decode(slide.content as List<int>));
+      final texts = xml.findAllElements('a:t').map((e) => e.innerText.trim()).where((t) => t.isNotEmpty);
+      if (texts.isNotEmpty) buffer.writeln(texts.join(' '));
+    }
+    return buffer.toString().trim();
   }
 }

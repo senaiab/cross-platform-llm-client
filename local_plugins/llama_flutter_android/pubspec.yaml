@@ -28,3 +28,9 @@ flutter:
         pluginClass: LlamaFlutterAndroidPlugin
       ios:
         pluginClass: LlamaFlutterAndroidPlugin
+      linux:
+        dartPluginClass: LlamaFlutterAndroidLinux
+      macos:
+        dartPluginClass: LlamaFlutterAndroidLinux
+      windows:
+        dartPluginClass: LlamaFlutterAndroidLinux

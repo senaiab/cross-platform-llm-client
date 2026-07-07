@@ -6,3 +6,4 @@ export 'src/engine.dart';
 export 'src/message.dart';
 export 'src/sampler_config.dart';
 export 'src/tool.dart';
+export 'flutter_litert_lm_linux.dart';

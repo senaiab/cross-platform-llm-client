@@ -548,3 +548,80 @@ Java_com_write4me_llama_1flutter_1android_LlamaFlutterAndroidPlugin_nativeSetSys
     // Currently not used but available for future smart context management
     LOGI("System prompt length set to: %d tokens (currently unused)", length);
 }
+
+// Embed model globals (separate from generation model)
+static llama_model* g_embed_model = nullptr;
+static llama_context* g_embed_ctx = nullptr;
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_write4me_llama_1flutter_1android_LlamaFlutterAndroidPlugin_nativeInitEmbedModel(
+    JNIEnv* env, jobject thiz, jstring path) {
+    if (g_embed_model) {
+        llama_free(g_embed_ctx);
+        llama_model_free(g_embed_model);
+        g_embed_model = nullptr;
+        g_embed_ctx = nullptr;
+    }
+    const char* model_path = env->GetStringUTFChars(path, nullptr);
+    llama_model_params mparams = llama_model_default_params();
+    mparams.n_gpu_layers = 0;
+    g_embed_model = llama_model_load_from_file(model_path, mparams);
+    env->ReleaseStringUTFChars(path, model_path);
+    if (!g_embed_model) return JNI_FALSE;
+    llama_context_params cparams = llama_context_default_params();
+    cparams.n_ctx = 512;
+    cparams.n_threads = 4;
+    cparams.embeddings = true;
+    g_embed_ctx = llama_init_from_model(g_embed_model, cparams);
+    if (!g_embed_ctx) {
+        llama_model_free(g_embed_model);
+        g_embed_model = nullptr;
+        return JNI_FALSE;
+    }
+    return JNI_TRUE;
+}
+
+extern "C" JNIEXPORT jfloatArray JNICALL
+Java_com_write4me_llama_1flutter_1android_LlamaFlutterAndroidPlugin_nativeEmbed(
+    JNIEnv* env, jobject thiz, jstring text) {
+    if (!g_embed_model || !g_embed_ctx) return nullptr;
+    const char* text_str = env->GetStringUTFChars(text, nullptr);
+    const llama_vocab* vocab = llama_model_get_vocab(g_embed_model);
+    const int n_tokens = -llama_tokenize(vocab, text_str, strlen(text_str), nullptr, 0, true, true);
+    if (n_tokens <= 0) { env->ReleaseStringUTFChars(text, text_str); return nullptr; }
+    std::vector<llama_token> tokens(n_tokens);
+    llama_tokenize(vocab, text_str, strlen(text_str), tokens.data(), tokens.size(), true, true);
+    env->ReleaseStringUTFChars(text, text_str);
+    llama_memory_seq_rm(llama_get_memory(g_embed_ctx), 0, 0, -1);
+    llama_batch batch = llama_batch_init(n_tokens, 0, 1);
+    batch.n_tokens = n_tokens;
+    for (int i = 0; i < n_tokens; i++) {
+        batch.token[i] = tokens[i];
+        batch.pos[i] = i;
+        batch.n_seq_id[i] = 1;
+        batch.seq_id[i][0] = 0;
+        batch.logits[i] = false;
+    }
+    if (llama_decode(g_embed_ctx, batch) != 0) { llama_batch_free(batch); return nullptr; }
+    llama_batch_free(batch);
+    const int n_embd = llama_model_n_embd(g_embed_model);
+    const float* embd = llama_get_embeddings_seq(g_embed_ctx, 0);
+    if (!embd) embd = llama_get_embeddings_ith(g_embed_ctx, n_tokens - 1);
+    if (!embd || n_embd <= 0) return nullptr;
+    // L2 normalize
+    float norm = 0.0f;
+    for (int i = 0; i < n_embd; i++) norm += embd[i] * embd[i];
+    norm = sqrtf(norm);
+    jfloatArray result = env->NewFloatArray(n_embd);
+    std::vector<float> normalized(n_embd);
+    for (int i = 0; i < n_embd; i++) normalized[i] = norm > 0 ? embd[i] / norm : 0.0f;
+    env->SetFloatArrayRegion(result, 0, n_embd, normalized.data());
+    return result;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_write4me_llama_1flutter_1android_LlamaFlutterAndroidPlugin_nativeFreeEmbedModel(
+    JNIEnv* env, jobject thiz) {
+    if (g_embed_ctx) { llama_free(g_embed_ctx); g_embed_ctx = nullptr; }
+    if (g_embed_model) { llama_model_free(g_embed_model); g_embed_model = nullptr; }
+}

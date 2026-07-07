@@ -39,6 +39,12 @@ flutter:
         pluginClass: SdFlutterAndroidPlugin
       ios:
         pluginClass: SdFlutterAndroidPlugin
+      linux:
+        dartPluginClass: SdFlutterAndroidLinux
+      macos:
+        dartPluginClass: SdFlutterAndroidLinux
+      windows:
+        dartPluginClass: SdFlutterAndroidLinux
 
   # To add assets to your plugin package, add an assets section, like this:
   # assets:

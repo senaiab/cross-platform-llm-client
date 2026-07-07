@@ -788,10 +788,20 @@ class InferenceEngine {
           recent.last['content'] == prompt) {
         recent = recent.sublist(0, recent.length - 1);
       }
-      for (final msg in recent) {
+      // Budget ~3000 chars for history to avoid overflowing the context window.
+      // Walk from newest to oldest, dropping oldest turns when over budget.
+      const historyCharBudget = 3000;
+      int charCount = 0;
+      final kept = <Map<String, String>>[];
+      for (final msg in recent.reversed) {
         final content = msg['content'] ?? '';
-        messages
-            .add(ChatMessage(role: msg['role'] ?? 'user', content: content));
+        final trunc = content.length > 400 ? '${content.substring(0, 400)}...' : content;
+        if (charCount + trunc.length > historyCharBudget && kept.isNotEmpty) break;
+        kept.insert(0, {'role': msg['role'] ?? 'user', 'content': trunc});
+        charCount += trunc.length;
+      }
+      for (final msg in kept) {
+        messages.add(ChatMessage(role: msg['role']!, content: msg['content']!));
       }
     }
 

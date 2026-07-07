@@ -24,6 +24,11 @@ class CrashReportingService extends GetxService {
   bool get isEnabled => _enabled;
 
   Future<CrashReportingService> init() async {
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      // Firebase Crashlytics is not supported on desktop platforms.
+      _enabled = false;
+      return this;
+    }
     try {
       if (Firebase.apps.isEmpty) {
         await Firebase.initializeApp();

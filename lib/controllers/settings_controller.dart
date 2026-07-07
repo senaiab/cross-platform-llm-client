@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
@@ -35,7 +36,7 @@ class SettingsController extends GetxController {
   final kimiModel = 'kimi-k2.6'.obs;
   final stabilityModel = 'sd3.5-flash'.obs;
   final nvidiaModel = 'meta/llama-3.1-8b-instruct'.obs;
-  final openRouterModel = 'openai/gpt-4o-mini'.obs;
+  final openRouterModel = 'openrouter/free'.obs;
   final deepSeekModel = 'deepseek-v4-flash'.obs;
   final customCloudModel = ''.obs;
   final globalSystemPrompt = AppConstants.systemPrompt.obs;
@@ -157,8 +158,8 @@ class SettingsController extends GetxController {
             defaultValue: 'meta/llama-3.1-8b-instruct') ??
         'meta/llama-3.1-8b-instruct';
     openRouterModel.value = _hive.getSetting(AppConstants.keyOpenRouterModel,
-            defaultValue: 'openai/gpt-4o-mini') ??
-        'openai/gpt-4o-mini';
+            defaultValue: 'openrouter/free') ??
+        'openrouter/free';
     deepSeekModel.value = _hive.getSetting(AppConstants.keyDeepSeekModel,
             defaultValue: 'deepseek-v4-flash') ??
         'deepseek-v4-flash';
@@ -587,6 +588,10 @@ class SettingsController extends GetxController {
   }
 
   Future<void> _detectImageGpu() async {
+    if (!Platform.isAndroid) {
+      imageGpuVendor.value = 'unknown';
+      return;
+    }
     try {
       imageGpuVendor.value = await SdFlutterAndroid.detectGpuVendor();
     } catch (_) {

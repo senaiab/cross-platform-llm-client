@@ -35,8 +35,9 @@ class CloudModelController extends GetxController {
   static const _cacheTimePrefix = 'cloud_model_cache_time_';
   static const _defaultModelsByProvider = <String, List<String>>{
     'openrouter': [
-      'openai/gpt-4o-mini',
+      'openrouter/free',
       'openai/gpt-4o',
+      'openai/gpt-4o-mini',
       'anthropic/claude-3.5-sonnet',
       'google/gemini-2.5-flash',
       'deepseek/deepseek-chat',
@@ -196,6 +197,9 @@ class CloudModelController extends GetxController {
     }
     return apiKeyFor(provider).isNotEmpty;
   }
+
+  static List<String> defaultModelsFor(String provider) =>
+      _defaultModelsByProvider[provider] ?? const [];
 
   String statusLabel(String provider) {
     return isConfigured(provider) ? 'Connected' : 'Needs Key';

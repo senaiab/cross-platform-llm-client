@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -23,7 +24,10 @@ import '../services/local_image_service.dart';
 import '../services/app_log_service.dart';
 import '../services/image_generation_notification_service.dart';
 import '../services/document_extractor_service.dart';
+import '../services/tool_calling_service.dart';
+import '../services/reasoning_service.dart';
 import '../utils/thought_parser.dart';
+import '../widgets/tool_approval_dialog.dart';
 
 const int _visionImageMaxSide = 768;
 const int _visionImageJpegQuality = 72;
@@ -33,7 +37,9 @@ Uint8List? _resizeVisionImageBytes(Map<String, dynamic> args) {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) return null;
 
-  final longestSide = decoded.width > decoded.height ? decoded.width : decoded.height;
+  final longestSide = decoded.width > decoded.height
+      ? decoded.width
+      : decoded.height;
   if (longestSide <= _visionImageMaxSide) {
     return bytes;
   }
@@ -90,6 +96,13 @@ class ChatController extends GetxController {
   bool _followStreaming = true;
   bool _scrollListenerAttached = false;
   int _generationSerial = 0;
+
+  // ─── Reasoning Features ─────────────────────────
+  final deepReasoningEnabled = false.obs;
+  final currentTaskMode = TaskMode.general.obs;
+
+  void toggleDeepReasoning() =>
+      deepReasoningEnabled.value = !deepReasoningEnabled.value;
 
   @override
   void onInit() {
@@ -246,40 +259,61 @@ class ChatController extends GetxController {
   void _checkVisionSupport() {
     final s = Get.find<SettingsController>();
     if (s.inferenceMode.value != 'cloud') return;
-    
+
     final provider = s.cloudProvider.value;
     String modelName = '';
     switch (provider) {
-      case 'anthropic': modelName = s.anthropicModel.value; break;
-      case 'google': modelName = s.googleModel.value; break;
-      case 'kimi': modelName = s.kimiModel.value; break;
-      case 'stability': modelName = s.stabilityModel.value; break;
-      case 'nvidia': modelName = s.nvidiaModel.value; break;
-      case 'openrouter': modelName = s.openRouterModel.value; break;
-      case 'deepseek': modelName = s.deepSeekModel.value; break;
-      case 'custom': modelName = s.customCloudModel.value; break;
-      default: modelName = s.openaiModel.value; break;
+      case 'anthropic':
+        modelName = s.anthropicModel.value;
+        break;
+      case 'google':
+        modelName = s.googleModel.value;
+        break;
+      case 'kimi':
+        modelName = s.kimiModel.value;
+        break;
+      case 'stability':
+        modelName = s.stabilityModel.value;
+        break;
+      case 'nvidia':
+        modelName = s.nvidiaModel.value;
+        break;
+      case 'openrouter':
+        modelName = s.openRouterModel.value;
+        break;
+      case 'deepseek':
+        modelName = s.deepSeekModel.value;
+        break;
+      case 'custom':
+        modelName = s.customCloudModel.value;
+        break;
+      default:
+        modelName = s.openaiModel.value;
+        break;
     }
-    
+
     final model = modelName.toLowerCase();
-    
+
     // Known vision keywords in cloud model names
-    final isVision = model.contains('vision') || 
-                     model.contains('-vl') || 
-                     model.contains('gpt-4o') || 
-                     model.contains('claude-3') || 
-                     model.contains('gemini') || 
-                     model.contains('pixtral') || 
-                     model.contains('llava') ||
-                     model.contains('omni');
-                     
+    final isVision =
+        model.contains('vision') ||
+        model.contains('-vl') ||
+        model.contains('gpt-4o') ||
+        model.contains('claude-3') ||
+        model.contains('gemini') ||
+        model.contains('pixtral') ||
+        model.contains('llava') ||
+        model.contains('omni');
+
     if (!isVision) {
       Get.snackbar(
         'Warning: Text-Only Model',
         'The selected model ($modelName) might not support images. If you get an error, switch to a vision model (like Gemini, GPT-4o, or Claude 3).',
         snackPosition: SnackPosition.TOP,
         duration: const Duration(seconds: 6),
-        backgroundColor: const Color(0xFFFF9500).withValues(alpha: 0.95), // Warning Orange
+        backgroundColor: const Color(
+          0xFFFF9500,
+        ).withValues(alpha: 0.95), // Warning Orange
         colorText: Colors.white,
         margin: const EdgeInsets.all(12),
       );
@@ -299,6 +333,9 @@ class ChatController extends GetxController {
           'heic',
           'pdf',
           'docx',
+          'xlsx',
+          'xls',
+          'pptx',
           'mp3',
           'm4a',
           'wav',
@@ -318,7 +355,7 @@ class ChatController extends GetxController {
           'java',
           'js',
           'ts',
-          'py'
+          'py',
         ],
         withData: kIsWeb,
       );
@@ -338,7 +375,8 @@ class ChatController extends GetxController {
       }
 
       if (fileType == 'image') {
-        final bytes = file.bytes ??
+        final bytes =
+            file.bytes ??
             (file.path != null ? await File(file.path!).readAsBytes() : null);
         if (bytes == null) return;
         final optimizedPath = await _prepareVisionImagePath(
@@ -367,7 +405,7 @@ class ChatController extends GetxController {
       selectedImagePath.value = null;
       selectedImageBase64.value = null;
 
-      if (fileType == 'pdf' || fileType == 'docx') {
+      if (fileType == 'pdf' || fileType == 'docx' || fileType == 'xlsx' || fileType == 'pptx') {
         final path = file.path;
         if (path != null) {
           try {
@@ -385,11 +423,13 @@ class ChatController extends GetxController {
               'Document extraction failed',
               details: e,
             );
-            selectedFileContent.value = '[Could not extract text from ${selectedFileName.value}: $e]';
+            selectedFileContent.value =
+                '[Could not extract text from ${selectedFileName.value}: $e]';
           }
         }
       } else if (fileType == 'text') {
-        final bytes = file.bytes ??
+        final bytes =
+            file.bytes ??
             (file.path != null ? await File(file.path!).readAsBytes() : null);
         if (bytes == null) return;
         selectedFileSize.value = file.size > 0 ? file.size : bytes.length;
@@ -402,8 +442,11 @@ class ChatController extends GetxController {
       }
     } catch (e) {
       Get.find<AppLogService>().warning('File attachment failed', details: e);
-      Get.snackbar('File not attached', '$e',
-          snackPosition: SnackPosition.BOTTOM);
+      Get.snackbar(
+        'File not attached',
+        '$e',
+        snackPosition: SnackPosition.BOTTOM,
+      );
     }
   }
 
@@ -461,8 +504,9 @@ class ChatController extends GetxController {
     final fileSize = selectedFileSize.value;
     final imagePath = selectedImagePath.value;
     final imageBase64 = selectedImageBase64.value;
-    final visibleText =
-        text.isEmpty ? _defaultAttachmentPrompt(fileType) : text;
+    final visibleText = text.isEmpty
+        ? _defaultAttachmentPrompt(fileType)
+        : text;
     final effectiveText = (fileContent != null && fileContent.trim().isNotEmpty)
         ? '$visibleText\n\nAttached file: $fileName\n```text\n$fileContent\n```'
         : visibleText;
@@ -498,7 +542,7 @@ class ChatController extends GetxController {
     messages.add(userMsg);
     _hive.saveMessage(userMsg.id, userMsg.toMap());
 
-    // Clear input preview UI state — but KEEP the physical file on disk 
+    // Clear input preview UI state — but KEEP the physical file on disk
     // because the native inference engine needs to read it during generation.
     textController.clear();
     inputText.value = '';
@@ -511,8 +555,9 @@ class ChatController extends GetxController {
       final title = visibleText.length > 40
           ? '${visibleText.substring(0, 40)}...'
           : visibleText;
-      final session =
-          sessions.firstWhere((s) => s.id == currentSessionId.value);
+      final session = sessions.firstWhere(
+        (s) => s.id == currentSessionId.value,
+      );
       final updated = session.copyWith(title: title, lastMessage: visibleText);
       _hive.saveSession(updated.id, updated.toMap());
       final idx = sessions.indexWhere((s) => s.id == updated.id);
@@ -523,8 +568,9 @@ class ChatController extends GetxController {
     final generationId = ++_generationSerial;
     isLoading.value = true;
     isStreaming.value = true;
-    streamingAttachmentType.value =
-        (imagePath != null || fileType == 'audio') ? fileType : null;
+    streamingAttachmentType.value = (imagePath != null || fileType == 'audio')
+        ? fileType
+        : null;
     streamingResponse.value = '';
     _followStreaming = true;
     _scrollToBottom(force: true);
@@ -542,12 +588,14 @@ class ChatController extends GetxController {
             !parts.isThinking &&
             thoughtStartedAt != null &&
             thoughtDurationSeconds == null) {
-          thoughtDurationSeconds =
-              DateTime.now().difference(thoughtStartedAt!).inSeconds;
+          thoughtDurationSeconds = DateTime.now()
+              .difference(thoughtStartedAt!)
+              .inSeconds;
         }
       }
 
-      final inferenceMode = _hive.getSetting(
+      final inferenceMode =
+          _hive.getSetting(
             AppConstants.keyInferenceMode,
             defaultValue: 'local',
           ) ??
@@ -558,13 +606,19 @@ class ChatController extends GetxController {
       // Build conversation history
       final history = messages
           .where((m) => m.role == 'user' || m.role == 'assistant')
-          .map((m) => {
-                'role': m.role,
-                'content': m.role == 'assistant'
-                    ? splitThoughtTags(m.content).answer
-                    : m.content,
-              })
+          .map(
+            (m) => {
+              'role': m.role,
+              'content': m.role == 'assistant'
+                  ? splitThoughtTags(m.content).answer
+                  : m.content,
+            },
+          )
           .toList();
+
+      // Detect task mode once — used in both local and cloud branches
+      final taskMode = ReasoningService.detectMode(effectiveText);
+      currentTaskMode.value = taskMode;
 
       if (inferenceMode == 'local') {
         final localImage = Get.find<LocalImageService>();
@@ -574,18 +628,22 @@ class ChatController extends GetxController {
           final settings = Get.find<SettingsController>();
           final imageNotifications =
               Get.find<ImageGenerationNotificationService>();
-          final steps = _hive.getSetting<int>(AppConstants.keyImageSteps,
-              defaultValue: AppConstants.defaultImageSteps) ??
+          final steps =
+              _hive.getSetting<int>(
+                AppConstants.keyImageSteps,
+                defaultValue: AppConstants.defaultImageSteps,
+              ) ??
               AppConstants.defaultImageSteps;
           final sizeSetting = settings.imageGenSize.value;
-          final sizeLabel =
-              sizeSetting == 0 ? 'Auto size' : '${sizeSetting}x$sizeSetting';
+          final sizeLabel = sizeSetting == 0
+              ? 'Auto size'
+              : '${sizeSetting}x$sizeSetting';
           final backendLabel = localImage.currentBackend.value == Backend.cpu
               ? 'CPU'
               : localImage.currentBackend.value.displayName
-                  .split(' ')
-                  .first
-                  .toUpperCase();
+                    .split(' ')
+                    .first
+                    .toUpperCase();
           imageGenStep.value = 0;
           imageGenTotal.value = steps;
           imageGenEstimatedSecs.value = 0;
@@ -601,18 +659,24 @@ class ChatController extends GetxController {
           final pngBytes = await localImage.generateImage(
             prompt: text,
             onProgress: (step, total) {
-              print('[ChatController] Progress callback: step=$step, total=$total');
+              print(
+                '[ChatController] Progress callback: step=$step, total=$total',
+              );
               imageGenStep.value = step;
               imageGenTotal.value = total;
               if (step >= total && total > 0) {
                 imageGenDecoding.value = true;
-                print('[ChatController] Sampling complete, VAE decode in progress');
+                print(
+                  '[ChatController] Sampling complete, VAE decode in progress',
+                );
                 imageNotifications.decoding();
               }
               if (step > 0 && total > 0 && step < total) {
                 final start = imageGenStartTime.value;
                 if (start != null) {
-                  final elapsed = DateTime.now().difference(start).inMilliseconds;
+                  final elapsed = DateTime.now()
+                      .difference(start)
+                      .inMilliseconds;
                   final avgMsPerStep = elapsed / step;
                   final remainingSteps = total - step;
                   imageGenEstimatedSecs.value =
@@ -626,17 +690,21 @@ class ChatController extends GetxController {
                 elapsedSeconds: imageGenStartTime.value == null
                     ? 0
                     : DateTime.now()
-                        .difference(imageGenStartTime.value!)
-                        .inSeconds,
+                          .difference(imageGenStartTime.value!)
+                          .inSeconds,
               );
               _scrollToBottom();
             },
           );
           // Calculate total generation time
           final genDurationMs = imageGenStartTime.value != null
-              ? DateTime.now().difference(imageGenStartTime.value!).inMilliseconds
+              ? DateTime.now()
+                    .difference(imageGenStartTime.value!)
+                    .inMilliseconds
               : null;
-          print('[ChatController] generateImage returned, bytes=${pngBytes?.length}, duration=${genDurationMs}ms');
+          print(
+            '[ChatController] generateImage returned, bytes=${pngBytes?.length}, duration=${genDurationMs}ms',
+          );
 
           if (pngBytes != null) {
             await imageNotifications.complete(durationMs: genDurationMs ?? 0);
@@ -651,25 +719,64 @@ class ChatController extends GetxController {
           // LiteRT models can consume image/audio attachments. GGUF currently
           // returns a clear unsupported message from the inference layer.
 
-          rawResponse = await inference.generate(
-            prompt: effectiveText,
-            systemPrompt: _effectiveSystemPrompt,
-            conversationHistory: history,
-            source: 'chat',
-            imagePath: imagePath,
-            audioPath: fileType == 'audio' ? filePath : null,
-            onToken: (token) {
-              // Real-time streaming update
-              streamingResponse.value += token;
-              trackThoughtTiming();
-              _scrollToBottom();
-            },
-          );
+          final modeSystemPrompt = _effectiveSystemPromptForMode(taskMode);
+
+          void onTokenCallback(String token) {
+            streamingResponse.value += token;
+            trackThoughtTiming();
+            _scrollToBottom();
+          }
+
+          if (deepReasoningEnabled.value) {
+            // Planner → Worker → Checker 3-pass reasoning
+            rawResponse = await _runPlannerWorkerChecker(
+              userMessage: effectiveText,
+              history: history,
+              inference: inference,
+              sysPrompt: modeSystemPrompt,
+              generationId: generationId,
+              onToken: onTokenCallback,
+            );
+          } else {
+            rawResponse = await inference.generate(
+              prompt: effectiveText,
+              systemPrompt: modeSystemPrompt,
+              conversationHistory: history,
+              source: 'chat',
+              imagePath: imagePath,
+              audioPath: fileType == 'audio' ? filePath : null,
+              onToken: onTokenCallback,
+            );
+
+            // Weak answer escalation (only when deep reasoning is OFF)
+            if (generationId == _generationSerial &&
+                ReasoningService.isWeakAnswer(rawResponse)) {
+              streamingResponse.value = '';
+              await inference.resetConversation();
+              final escalationHistory = [
+                ...history,
+                {'role': 'assistant', 'content': rawResponse},
+                {
+                  'role': 'user',
+                  'content': ReasoningService.escalationPrefix(rawResponse),
+                },
+              ];
+              rawResponse = await inference.generate(
+                prompt: ReasoningService.escalationPrefix(rawResponse),
+                systemPrompt: modeSystemPrompt,
+                conversationHistory: escalationHistory,
+                source: 'chat',
+                imagePath: imagePath,
+                audioPath: fileType == 'audio' ? filePath : null,
+                onToken: onTokenCallback,
+              );
+            }
+          }
         }
       } else {
         final cloud = Get.find<CloudService>();
         final apiMessages = [
-          {'role': 'system', 'content': _effectiveSystemPrompt},
+          {'role': 'system', 'content': _effectiveSystemPromptForMode(taskMode)},
           ...history,
         ];
         rawResponse = await cloud.sendMessage(
@@ -684,8 +791,9 @@ class ChatController extends GetxController {
       }
 
       if (thoughtStartedAt != null && thoughtDurationSeconds == null) {
-        thoughtDurationSeconds =
-            DateTime.now().difference(thoughtStartedAt!).inSeconds;
+        thoughtDurationSeconds = DateTime.now()
+            .difference(thoughtStartedAt!)
+            .inSeconds;
       }
 
       if (generationId != _generationSerial) return;
@@ -705,6 +813,18 @@ class ChatController extends GetxController {
       if (rawResponse.startsWith('[IMAGE_BASE64]')) {
         outImageBase64 = rawResponse.substring('[IMAGE_BASE64]'.length);
         rawResponse = 'Here is your generated image:';
+      } else {
+        rawResponse = await _resolveToolCalls(
+          initialResponse: rawResponse,
+          baseHistory: history,
+          inferenceMode: inferenceMode,
+          generationId: generationId,
+          onToken: (token) {
+            streamingResponse.value += token;
+            trackThoughtTiming();
+            _scrollToBottom();
+          },
+        );
       }
 
       // Calculate total generation time for image gen
@@ -728,8 +848,9 @@ class ChatController extends GetxController {
       imageGenStartTime.value = null;
 
       // Update session
-      final session =
-          sessions.firstWhereOrNull((s) => s.id == currentSessionId.value);
+      final session = sessions.firstWhereOrNull(
+        (s) => s.id == currentSessionId.value,
+      );
       if (session != null) {
         final updated = session.copyWith(lastMessage: aiMsg.content);
         _hive.saveSession(updated.id, updated.toMap());
@@ -808,8 +929,9 @@ class ChatController extends GetxController {
     messages.add(aiMsg);
     _hive.saveMessage(aiMsg.id, aiMsg.toMap());
 
-    final session =
-        sessions.firstWhereOrNull((s) => s.id == currentSessionId.value);
+    final session = sessions.firstWhereOrNull(
+      (s) => s.id == currentSessionId.value,
+    );
     if (session != null) {
       final updated = session.copyWith(lastMessage: aiMsg.content);
       _hive.saveSession(updated.id, updated.toMap());
@@ -867,9 +989,221 @@ class ChatController extends GetxController {
     final modelName = settings.inferenceMode.value == 'local'
         ? inference.loadedModelName.value
         : settings.selectedCloudModelName;
-    return settings.effectiveSystemPromptForModel(
-      modelName,
+    return '${settings.effectiveSystemPromptForModel(modelName)}\n\n${ToolCallingService.protocolPrompt}\n\n${ToolCallingService.planningPrompt}';
+  }
+
+  String _effectiveSystemPromptForMode(TaskMode mode) {
+    final base = _effectiveSystemPrompt;
+    final addition = ReasoningService.systemAdditionForMode(mode);
+    const checklist = ReasoningService.qualityChecklist;
+    if (addition.isEmpty) {
+      return '$base\n\n$checklist';
+    }
+    return '$base\n\n$addition\n\n$checklist';
+  }
+
+  Future<String> _runPlannerWorkerChecker({
+    required String userMessage,
+    required List<Map<String, String>> history,
+    required InferenceService inference,
+    required String sysPrompt,
+    required int generationId,
+    required void Function(String token) onToken,
+  }) async {
+    // Stage 1 — Planner (silent, no streaming shown)
+    streamingResponse.value = '📋 Analyzing…';
+    await inference.resetConversation();
+    final plan = await inference.generate(
+      prompt: userMessage,
+      systemPrompt: '$sysPrompt\n\n${ReasoningService.plannerInstruction}',
+      conversationHistory: history,
+      source: 'chat',
     );
+
+    if (generationId != _generationSerial) return plan;
+
+    // Stage 2 — Worker (streamed to user)
+    streamingResponse.value = '';
+    await inference.resetConversation();
+    final draft = await inference.generate(
+      prompt: userMessage,
+      systemPrompt:
+          '$sysPrompt\n\n${ReasoningService.workerInstruction(plan)}',
+      conversationHistory: history,
+      source: 'chat',
+      onToken: onToken,
+    );
+
+    if (generationId != _generationSerial) return draft;
+
+    // Stage 3 — Checker (clears and re-streams final answer)
+    streamingResponse.value = '';
+    await inference.resetConversation();
+    final finalAnswer = await inference.generate(
+      prompt: userMessage,
+      systemPrompt:
+          '$sysPrompt\n\n${ReasoningService.checkerInstruction(draft)}',
+      conversationHistory: history,
+      source: 'chat',
+      onToken: onToken,
+    );
+
+    return finalAnswer;
+  }
+
+  Future<String> _resolveToolCalls({
+    required String initialResponse,
+    required List<Map<String, String>> baseHistory,
+    required String inferenceMode,
+    required int generationId,
+    required void Function(String token) onToken,
+  }) async {
+    final tools = Get.find<ToolCallingService>();
+    tools.approvalHandler = (toolName, args) {
+      final completer = Completer<bool>();
+      Get.dialog(
+        ToolApprovalDialog(
+          toolName: toolName,
+          args: args,
+          onResult: completer.complete,
+        ),
+        barrierDismissible: false,
+      );
+      return completer.future;
+    };
+    try {
+      var response = initialResponse;
+      final toolHistory = List<Map<String, String>>.from(baseHistory);
+      final originalUserRequest = _lastUserContent(baseHistory);
+      final toolMode = _toolModeForRequest(originalUserRequest);
+      final maxRounds = switch (toolMode) {
+        ToolCallingMode.subagent => ToolCallingService.subagentMaxRounds,
+        ToolCallingMode.agent => ToolCallingService.agentMaxRounds,
+        _ => ToolCallingService.planMaxRounds,
+      };
+      final stepOutputs = <int, String>{};
+      int stepNum = 0;
+
+      // Log plan if present
+      if (response.contains('[PLAN]')) {
+        final planMatch = RegExp(r'\[PLAN\]([\s\S]*?)\[/PLAN\]').firstMatch(response);
+        if (planMatch != null) {
+          Get.find<AppLogService>().info('[Planning] Plan detected:\n${planMatch.group(1)?.trim()}');
+        }
+      }
+
+      for (var round = 0; round < maxRounds; round++) {
+        if (generationId != _generationSerial) return response;
+
+        final answer = splitThoughtTags(response).answer;
+        final request = tools.parseToolCall(answer);
+        if (request == null) return response;
+
+        Map<String, dynamic> result;
+        try {
+          result = await tools.callTool(
+            request.name,
+            request.arguments,
+            mode: toolMode,
+          );
+        } catch (e) {
+          Get.find<AppLogService>().warning(
+            'Tool call failed',
+            details: 'tool=${request.name}, error=$e',
+          );
+          result = {'error': e.toString()};
+        }
+
+        stepNum++;
+        final resultText = jsonEncode(result);
+        stepOutputs[stepNum] = resultText;
+
+        final toolResult = tools.renderToolResultForModel(request, result);
+        toolHistory
+          ..add({'role': 'assistant', 'content': answer})
+          ..add({'role': 'user', 'content': toolResult});
+
+        streamingResponse.value = '';
+        final followUpPrompt = _substituteStepOutputs(
+          _toolFollowUpPrompt(
+            originalUserRequest: originalUserRequest,
+            toolResult: toolResult,
+          ),
+          stepOutputs,
+        );
+        response = await _generateToolFollowUp(
+          prompt: followUpPrompt,
+          history: toolHistory,
+          inferenceMode: inferenceMode,
+          onToken: onToken,
+        );
+      }
+
+      return response;
+    } finally {
+      tools.approvalHandler = null;
+    }
+  }
+
+  ToolCallingMode _toolModeForRequest(String? request) {
+    final text = request?.toLowerCase() ?? '';
+    if (text.contains('subagent mode')) return ToolCallingMode.subagent;
+    if (text.contains('agent mode')) return ToolCallingMode.agent;
+    if (text.contains('build mode')) return ToolCallingMode.build;
+    return ToolCallingMode.plan;
+  }
+
+  Future<String> _generateToolFollowUp({
+    required String prompt,
+    required List<Map<String, String>> history,
+    required String inferenceMode,
+    required void Function(String token) onToken,
+  }) async {
+    if (inferenceMode == 'local') {
+      final inference = Get.find<InferenceService>();
+      await inference.resetConversation();
+      return inference.generate(
+        prompt: prompt,
+        systemPrompt: _effectiveSystemPrompt,
+        source: 'chat',
+        onToken: onToken,
+      );
+    }
+
+    return Get.find<CloudService>().sendMessage(
+      messages: [
+        {'role': 'system', 'content': _effectiveSystemPrompt},
+        ...history,
+      ],
+      onToken: onToken,
+    );
+  }
+
+  String _substituteStepOutputs(String text, Map<int, String> stepOutputs) {
+    var result = text;
+    for (final entry in stepOutputs.entries) {
+      result = result.replaceAll('{{step_${entry.key}_output}}', entry.value);
+    }
+    return result;
+  }
+
+  String _toolFollowUpPrompt({
+    required String? originalUserRequest,
+    required String toolResult,
+  }) {
+    final request = originalUserRequest?.trim();
+    if (request == null || request.isEmpty) {
+      return '$toolResult\n\nAnswer the user using this tool result. If you need another tool, return only the next [TOOL: name] JSON block.';
+    }
+
+    return 'Original user request:\n$request\n\n$toolResult\n\nAnswer the original user request using this tool result. If you need another tool, return only the next [TOOL: name] JSON block.';
+  }
+
+  String? _lastUserContent(List<Map<String, String>> history) {
+    for (final message in history.reversed) {
+      if (message['role'] == 'user') return message['content'];
+    }
+    return null;
   }
 
   String _attachmentTypeForExtension(String extension) {
@@ -895,6 +1229,8 @@ class ChatController extends GetxController {
     if (audioExtensions.contains(extension)) return 'audio';
     if (extension == 'pdf') return 'pdf';
     if (extension == 'docx') return 'docx';
+    if (extension == 'xlsx' || extension == 'xls') return 'xlsx';
+    if (extension == 'pptx') return 'pptx';
     if (textExtensions.contains(extension)) return 'text';
     return 'file';
   }
@@ -907,6 +1243,10 @@ class ChatController extends GetxController {
         return 'Summarize this PDF.';
       case 'docx':
         return 'Summarize this document.';
+      case 'xlsx':
+        return 'Summarize this spreadsheet.';
+      case 'pptx':
+        return 'Summarize this presentation.';
       case 'audio':
         return 'Transcribe or analyze this audio.';
       case 'text':

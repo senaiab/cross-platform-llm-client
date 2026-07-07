@@ -1,13 +1,12 @@
 import 'dart:async';
 import 'dart:ui';
 
-import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:get/get.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-// import 'firebase_options.dart';
 import 'controllers/settings_controller.dart';
 import 'controllers/cloud_model_controller.dart';
 import 'controllers/server_controller.dart';
@@ -21,6 +20,9 @@ import 'services/cloud_service.dart';
 import 'services/download_service.dart';
 import 'services/device_info_service.dart';
 import 'services/local_image_service.dart';
+import 'services/tool_calling_service.dart';
+import 'services/mcp_service.dart';
+import 'services/rag_service.dart';
 import 'services/app_log_service.dart';
 import 'services/crash_reporting_service.dart';
 import 'services/image_generation_notification_service.dart';
@@ -29,109 +31,108 @@ import 'core/constants.dart';
 void main() {
   final appLogBuffer = <String>[];
 
-  runZonedGuarded(() async {
-    WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(
+    () async {
+      WidgetsFlutterBinding.ensureInitialized();
 
-    // Register logger first so everything routes to it
-    final appLog = AppLogService();
-    Get.put(appLog);
+      // Register logger first so everything routes to it
+      final appLog = AppLogService();
+      Get.put(appLog);
 
-    // Flush buffered prints
-    for (final line in appLogBuffer) {
-      appLog.info(line);
-    }
-    appLogBuffer.clear();
-
-    appLog.info('App started');
-
-    // Initialize Firebase before any Firebase-dependent services
-    try {
-      // await Firebase.initializeApp(
-      //   options: DefaultFirebaseOptions.currentPlatform,
-      // );
-    } catch (e) {
-      appLog.error('[Firebase] Initialization failed', details: e);
-    }
-
-    // Lock to portrait (mobile only)
-    if (!kIsWeb) {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-      ]);
-    }
-
-    // Initialize Hive
-    await Hive.initFlutter();
-
-    // Register global services
-    await Get.putAsync(() => HiveService().init());
-    await Get.putAsync(() => DeviceInfoService().init());
-
-    // Settings controller must be initialized before runApp for theme support
-    final settingsController = Get.put(SettingsController());
-    Get.put(CloudModelController());
-
-    Get.put(InferenceService());
-    Get.put(CloudService());
-    Get.put(DownloadService());
-    Get.put(LocalImageService());
-    final crashReporting =
-        await Get.putAsync(() => CrashReportingService().init());
-    FlutterError.onError = (details) {
-      FlutterError.presentError(details);
-      appLog.error(
-        details.exceptionAsString(),
-        details: details.stack?.toString() ?? 'No stack',
-      );
-      crashReporting.recordFlutterFatal(details);
-    };
-    PlatformDispatcher.instance.onError = (error, stack) {
-      appLog.error(
-        error.toString(),
-        details: stack.toString(),
-      );
-      crashReporting.recordFatal(error, stack, reason: 'platform_dispatcher');
-      return true;
-    };
-    final imageNotifications = Get.put(ImageGenerationNotificationService());
-    await imageNotifications.init();
-    await imageNotifications.configureBackgroundService();
-    Get.put(ServerController(), permanent: true);
-    Get.put(ModelController());
-
-    // Auto-configure inference settings based on device RAM
-    _autoConfigureForDevice();
-
-    // Keep last model as a quick-load option, but do not auto-load on startup.
-    _validateLastModel();
-
-    runApp(const PrivateLMApp());
-
-    // Apply system UI after frame is rendered so Get.mediaQuery is available
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      settingsController.setThemeMode(settingsController.themeMode.value);
-    });
-  }, (error, stack) async {
-    if (Get.isRegistered<AppLogService>()) {
-      Get.find<AppLogService>().error(
-        'Uncaught zone error: $error',
-        details: stack.toString(),
-      );
-    }
-    if (Get.isRegistered<CrashReportingService>()) {
-      await Get.find<CrashReportingService>()
-          .recordFatal(error, stack, reason: 'run_zoned_guarded');
-    }
-  }, zoneSpecification: ZoneSpecification(
-    print: (self, parent, zone, line) {
-      if (Get.isRegistered<AppLogService>()) {
-        Get.find<AppLogService>().info(line);
-      } else {
-        appLogBuffer.add(line);
+      // Flush buffered prints
+      for (final line in appLogBuffer) {
+        appLog.info(line);
       }
-      parent.print(zone, line);
+      appLogBuffer.clear();
+
+      appLog.info('App started');
+
+      // Lock to portrait (mobile only)
+      if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
+        await SystemChrome.setPreferredOrientations([
+          DeviceOrientation.portraitUp,
+        ]);
+      }
+
+      // Initialize Hive
+      await Hive.initFlutter();
+
+      // Register global services
+      await Get.putAsync(() => HiveService().init());
+      await Get.putAsync(() => DeviceInfoService().init());
+
+      // Settings controller must be initialized before runApp for theme support
+      final settingsController = Get.put(SettingsController());
+      Get.put(CloudModelController());
+
+      Get.put(InferenceService());
+      Get.put(CloudService());
+      Get.put(McpService());
+      await Get.putAsync(() => RagService().init());
+      Get.put(ToolCallingService());
+      Get.put(DownloadService());
+      Get.put(LocalImageService());
+      final crashReporting = await Get.putAsync(
+        () => CrashReportingService().init(),
+      );
+      FlutterError.onError = (details) {
+        FlutterError.presentError(details);
+        appLog.error(
+          details.exceptionAsString(),
+          details: details.stack?.toString() ?? 'No stack',
+        );
+        crashReporting.recordFlutterFatal(details);
+      };
+      PlatformDispatcher.instance.onError = (error, stack) {
+        appLog.error(error.toString(), details: stack.toString());
+        crashReporting.recordFatal(error, stack, reason: 'platform_dispatcher');
+        return true;
+      };
+      final imageNotifications = Get.put(ImageGenerationNotificationService());
+      await imageNotifications.init();
+      await imageNotifications.configureBackgroundService();
+      Get.put(ServerController(), permanent: true);
+      Get.put(ModelController());
+
+      // Auto-configure inference settings based on device RAM
+      _autoConfigureForDevice();
+
+      // Keep last model as a quick-load option, but do not auto-load on startup.
+      _validateLastModel();
+
+      runApp(const PrivateLMApp());
+
+      // Apply system UI after frame is rendered so Get.mediaQuery is available
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        settingsController.setThemeMode(settingsController.themeMode.value);
+      });
     },
-  ));
+    (error, stack) async {
+      if (Get.isRegistered<AppLogService>()) {
+        Get.find<AppLogService>().error(
+          'Uncaught zone error: $error',
+          details: stack.toString(),
+        );
+      }
+      if (Get.isRegistered<CrashReportingService>()) {
+        await Get.find<CrashReportingService>().recordFatal(
+          error,
+          stack,
+          reason: 'run_zoned_guarded',
+        );
+      }
+    },
+    zoneSpecification: ZoneSpecification(
+      print: (self, parent, zone, line) {
+        if (Get.isRegistered<AppLogService>()) {
+          Get.find<AppLogService>().info(line);
+        } else {
+          appLogBuffer.add(line);
+        }
+        parent.print(zone, line);
+      },
+    ),
+  );
 }
 
 /// Validates that remembered models still exist on disk.
@@ -154,10 +155,12 @@ void _validateLastModel() async {
   }
 
   // Validate last image model
-  final imageModelName =
-      hive.getSetting<String>(AppConstants.keyImageModelName);
-  final imageModelPath =
-      hive.getSetting<String>(AppConstants.keyImageModelPath);
+  final imageModelName = hive.getSetting<String>(
+    AppConstants.keyImageModelName,
+  );
+  final imageModelPath = hive.getSetting<String>(
+    AppConstants.keyImageModelPath,
+  );
   if (imageModelName != null &&
       imageModelName.isNotEmpty &&
       imageModelPath != null &&
@@ -185,8 +188,9 @@ void _autoConfigureForDevice() {
   hive.setSetting('device_auto_configured', true);
 
   Get.find<AppLogService>().info(
-      '[AutoConfig] Set context=${device.recommendedContextSize}, '
-      'maxTokens=${device.recommendedMaxTokens} for ${device.totalRamGB.value.toStringAsFixed(1)}GB RAM');
+    '[AutoConfig] Set context=${device.recommendedContextSize}, '
+    'maxTokens=${device.recommendedMaxTokens} for ${device.totalRamGB.value.toStringAsFixed(1)}GB RAM',
+  );
 }
 
 class PrivateLMApp extends StatelessWidget {
@@ -207,9 +211,9 @@ class PrivateLMApp extends StatelessWidget {
         initialRoute: AppRoutes.home,
         getPages: AppPages.pages,
         builder: (ctx, child) => MediaQuery(
-          data: MediaQuery.of(ctx).copyWith(
-            textScaler: TextScaler.linear(scale),
-          ),
+          data: MediaQuery.of(
+            ctx,
+          ).copyWith(textScaler: TextScaler.linear(scale)),
           child: child!,
         ),
       );

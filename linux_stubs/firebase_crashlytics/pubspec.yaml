@@ -1,0 +1,12 @@
+name: firebase_crashlytics
+version: 999.0.0
+description: Linux stub — no-op Firebase Crashlytics for desktop builds
+publish_to: none
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+  flutter: '>=3.3.0'
+
+dependencies:
+  flutter:
+    sdk: flutter

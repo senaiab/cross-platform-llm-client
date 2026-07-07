@@ -353,6 +353,13 @@ class InferenceService extends GetxService {
       tokenFlushTimer?.cancel();
       flushTokenBuffer();
       Get.find<AppLogService>().error('Local generation failed', details: e);
+      final msg = e.toString();
+      if (msg.contains('decode prompt') || msg.contains('Failed to decode')) {
+        // Context window overflowed — reset native state so next call works.
+        try { await resetConversation(); } catch (_) {}
+        return '⚠️ Context window full — the conversation history exceeded this model\'s context limit. '
+            'The context has been reset. Please resend your message.';
+      }
       return 'ERROR: $e';
     }
   }

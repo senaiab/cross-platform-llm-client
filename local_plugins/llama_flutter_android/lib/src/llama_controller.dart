@@ -67,8 +67,9 @@ class LlamaController implements LlamaFlutterApi {
 
     _isGenerating = true;
     _tokenController = StreamController<String>.broadcast();
-    
-    // Start generation
+
+    // Start generation — forward any native exception into the stream so
+    // callers see it via onError rather than as an uncaught zone error.
     _api.generate(GenerateRequest(
       prompt: prompt,
       maxTokens: maxTokens,
@@ -86,7 +87,11 @@ class LlamaController implements LlamaFlutterApi {
       mirostatEta: mirostatEta,
       seed: seed,
       penalizeNewline: penalizeNewline,
-    ));
+    )).catchError((Object error, StackTrace stack) {
+      _tokenController?.addError(error, stack);
+      _tokenController?.close();
+      _isGenerating = false;
+    });
 
     return _tokenController!.stream;
   }
@@ -149,8 +154,8 @@ class LlamaController implements LlamaFlutterApi {
 
     _isGenerating = true;
     _tokenController = StreamController<String>.broadcast();
-    
-    // Start chat generation
+
+    // Start chat generation — forward any native exception into the stream.
     _api.generateChat(ChatRequest(
       messages: messages,
       template: template,
@@ -169,7 +174,11 @@ class LlamaController implements LlamaFlutterApi {
       mirostatEta: mirostatEta,
       seed: seed,
       penalizeNewline: penalizeNewline,
-    ));
+    )).catchError((Object error, StackTrace stack) {
+      _tokenController?.addError(error, stack);
+      _tokenController?.close();
+      _isGenerating = false;
+    });
 
     return _tokenController!.stream;
   }

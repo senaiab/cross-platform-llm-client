@@ -303,14 +303,19 @@ class InferenceService extends GetxService {
         audioPath: audioPath,
         onToken: (token) {
           firstVisibleTokenAt ??= DateTime.now();
-          tokenCount.value++;
-          streamingText.value += token;
-          final speedStart = firstVisibleTokenAt ?? startTime;
-          final elapsedSeconds =
-              DateTime.now().difference(speedStart).inMilliseconds / 1000.0;
-          if (elapsedSeconds > 0) {
-            tokensPerSecond.value = tokenCount.value / elapsedSeconds;
-          }
+          // Defer reactive updates to after the current build frame so that
+          // newly-mounted Obx widgets have registered their listeners first,
+          // avoiding the GetX "improper use" warning.
+          Timer.run(() {
+            tokenCount.value++;
+            streamingText.value += token;
+            final speedStart = firstVisibleTokenAt ?? startTime;
+            final elapsedSeconds =
+                DateTime.now().difference(speedStart).inMilliseconds / 1000.0;
+            if (elapsedSeconds > 0) {
+              tokensPerSecond.value = tokenCount.value / elapsedSeconds;
+            }
+          });
           if (loadedModelRuntime.value == 'litert') {
             tokenFlushBuffer.write(token);
             tokenFlushTimer ??= Timer(const Duration(milliseconds: 60), () {

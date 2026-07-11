@@ -391,7 +391,7 @@ class InferenceEngine {
         tokenCount++;
         onToken?.call(clean);
         _idleTimer?.cancel();
-        _idleTimer = Timer(const Duration(seconds: 5), () {
+        _idleTimer = Timer(const Duration(seconds: 20), () {
           print('[Inference] Idle timeout — $tokenCount tokens');
           finish(buffer.toString());
         });
@@ -548,7 +548,7 @@ class InferenceEngine {
         buffer.write(text);
         onToken?.call(text);
         _idleTimer?.cancel();
-        _idleTimer = Timer(const Duration(seconds: 5), () {
+        _idleTimer = Timer(const Duration(seconds: 20), () {
           print('[Inference] LiteRT-LM idle timeout - $tokenCount chunks');
           finish(buffer.toString());
         });
@@ -788,14 +788,17 @@ class InferenceEngine {
           recent.last['content'] == prompt) {
         recent = recent.sublist(0, recent.length - 1);
       }
-      // Budget ~3000 chars for history to avoid overflowing the context window.
+      // Budget ~4000 chars for history to avoid overflowing the context window.
       // Walk from newest to oldest, dropping oldest turns when over budget.
-      const historyCharBudget = 3000;
+      // Per-message cap of 800 chars preserves tool results without truncating
+      // critical context.
+      const historyCharBudget = 4000;
+      const maxMsgChars = 800;
       int charCount = 0;
       final kept = <Map<String, String>>[];
       for (final msg in recent.reversed) {
         final content = msg['content'] ?? '';
-        final trunc = content.length > 400 ? '${content.substring(0, 400)}...' : content;
+        final trunc = content.length > maxMsgChars ? '${content.substring(0, maxMsgChars)}...' : content;
         if (charCount + trunc.length > historyCharBudget && kept.isNotEmpty) break;
         kept.insert(0, {'role': msg['role'] ?? 'user', 'content': trunc});
         charCount += trunc.length;

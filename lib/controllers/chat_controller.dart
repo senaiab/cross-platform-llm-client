@@ -1165,6 +1165,7 @@ class ChatController extends GetxController {
       return inference.generate(
         prompt: prompt,
         systemPrompt: _effectiveSystemPrompt,
+        conversationHistory: history,
         source: 'chat',
         onToken: onToken,
       );

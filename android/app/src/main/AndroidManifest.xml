@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.READ_CALENDAR"/>
     <uses-permission android:name="android.permission.WRITE_CALENDAR"/>
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
+    <!-- Termux bridge: allows sending commands to Termux via RUN_COMMAND intent -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
 
     <application
         android:label="PrivateLM"
@@ -75,5 +77,7 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Termux package visibility for RUN_COMMAND bridge -->
+        <package android:name="com.termux"/>
     </queries>
 </manifest>

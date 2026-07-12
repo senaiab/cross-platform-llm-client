@@ -29,7 +29,7 @@ flutter:
       ios:
         pluginClass: LlamaFlutterAndroidPlugin
       linux:
-        dartPluginClass: LlamaFlutterAndroidLinux
+        pluginClass: LlamaFlutterAndroidPlugin
       macos:
         dartPluginClass: LlamaFlutterAndroidLinux
       windows:

@@ -5,7 +5,8 @@ import 'package:flutter_litert_lm/flutter_litert_lm.dart';
 import 'package:llama_flutter_android/llama_flutter_android.dart';
 
 /// Whether the current platform supports local inference.
-bool get supportsLocalInference => Platform.isAndroid || Platform.isIOS;
+bool get supportsLocalInference =>
+    Platform.isAndroid || Platform.isIOS || Platform.isLinux;
 
 /// Result from model loading.
 class LoadResult {

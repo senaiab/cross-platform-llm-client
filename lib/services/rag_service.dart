@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/services.dart';
@@ -11,7 +12,10 @@ class RagService extends GetxService {
   Database? _db;
   String? _embedModelPath;
 
+  bool get _supportsLocalRag => Platform.isAndroid || Platform.isIOS;
+
   Future<RagService> init() async {
+    if (!_supportsLocalRag) return this;
     final dbPath = p.join(await getDatabasesPath(), 'rag_store.db');
     _db = await openDatabase(dbPath, version: 1, onCreate: (db, _) async {
       await db.execute('''
@@ -34,6 +38,7 @@ class RagService extends GetxService {
   bool get isConfigured => _embedModelPath != null;
 
   Future<bool> initEmbedModel(String path) async {
+    if (!_supportsLocalRag) return false;
     final ok = await _embedChannel.invokeMethod<bool>('initEmbedModel', {'path': path}) ?? false;
     if (ok) _embedModelPath = path;
     return ok;

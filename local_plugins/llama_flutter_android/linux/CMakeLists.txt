@@ -7,6 +7,15 @@ set(PLUGIN_NAME "llama_flutter_android_plugin")
 
 find_package(Threads REQUIRED)
 
+# All of this plugin's shared libraries end up flat in the app bundle's
+# lib/ directory alongside libllama/libggml*. Flutter's plugin packaging
+# copies the as-built .so directly (there's no separate `cmake --install`
+# step), so the $ORIGIN rpath must be baked in at BUILD time, not deferred
+# to an install step that never runs.
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
+set(CMAKE_INSTALL_RPATH "$ORIGIN")
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+
 # ---- llama.cpp (CPU-only for the Linux v1 build) ----
 set(GGML_VULKAN OFF CACHE BOOL "")
 set(GGML_OPENMP OFF CACHE BOOL "")

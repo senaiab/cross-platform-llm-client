@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:get/get.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/chat_message.dart';
+import '../services/tool_calling_service.dart';
 import '../utils/thought_parser.dart';
 import 'attachment_preview.dart';
 import 'image_viewer.dart';
@@ -194,6 +196,29 @@ class ChatBubble extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (!isUser) ...[
+                      const SizedBox(width: 2),
+                      SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: IconButton(
+                          tooltip: 'Save as Word',
+                          padding: EdgeInsets.zero,
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _saveAsWord(
+                            context,
+                            _copyText(isUser, visibleContent, answerContent),
+                          ),
+                          icon: Icon(
+                            Icons.description_outlined,
+                            size: 14,
+                            color: Theme.of(context)
+                                .hintColor
+                                .withValues(alpha: 0.62),
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -309,5 +334,51 @@ class ChatBubble extends StatelessWidget {
           duration: Duration(seconds: 1),
         ),
       );
+  }
+
+  Future<void> _saveAsWord(BuildContext context, String text) async {
+    if (text.trim().isEmpty) return;
+    final now = DateTime.now();
+    final stamp =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}'
+        '_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}${now.second.toString().padLeft(2, '0')}';
+    final path = '/storage/emulated/0/Download/PrivateLM_$stamp.docx';
+    try {
+      final result = await Get.find<ToolCallingService>().callTool(
+        'write_docx',
+        {'path': path, 'content': text},
+        mode: ToolCallingMode.build,
+      );
+      if (!context.mounted) return;
+      if (result['ok'] == true) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text('Saved to Downloads/PrivateLM_$stamp.docx'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+      } else {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              content: Text('Save failed: ${result['error'] ?? 'unknown error'}'),
+              duration: const Duration(seconds: 3),
+            ),
+          );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text('Save failed: $e'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+    }
   }
 }

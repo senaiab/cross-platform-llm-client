@@ -400,6 +400,12 @@ class SettingsView extends GetView<SettingsController> {
   Widget _buildLiteRtCard(BuildContext context, bool isDark) {
     final modes = [
       (
+        value: 'ultra_performance',
+        title: 'NPU Ultra',
+        subtitle: 'Qualcomm/MediaTek NPU — falls back to GPU then CPU',
+        icon: Icons.memory_rounded
+      ),
+      (
         value: 'auto_fast',
         title: 'Auto Fast',
         subtitle: 'Try GPU first, then CPU fallback',

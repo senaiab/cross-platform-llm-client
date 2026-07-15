@@ -183,8 +183,14 @@ class InferenceEngine {
     final cacheDir = Directory('${tempDir.path}/litert_cache');
     final backend = forceCpu || performanceMode == 'cpu_safe'
         ? LiteLmBackend.cpu
-        : LiteLmBackend.gpu;
-    final backendLabel = backend == LiteLmBackend.gpu ? 'GPU' : 'CPU';
+        : performanceMode == 'ultra_performance'
+            ? LiteLmBackend.npu
+            : LiteLmBackend.gpu;
+    final backendLabel = backend == LiteLmBackend.npu
+        ? 'NPU'
+        : backend == LiteLmBackend.gpu
+            ? 'GPU'
+            : 'CPU';
 
     try {
       onProgress?.call(0.05);
@@ -210,8 +216,12 @@ class InferenceEngine {
       return LoadResult(
         success: true,
         message: 'LiteRT-LM model loaded ($backendLabel backend).',
-        gpuName: backend == LiteLmBackend.gpu ? 'LiteRT GPU' : '',
-        gpuLayers: backend == LiteLmBackend.gpu ? 1 : 0,
+        gpuName: backend == LiteLmBackend.npu
+            ? 'LiteRT NPU'
+            : backend == LiteLmBackend.gpu
+                ? 'LiteRT GPU'
+                : '',
+        gpuLayers: (backend == LiteLmBackend.gpu || backend == LiteLmBackend.npu) ? 1 : 0,
         runtime: 'litert',
         backend: backend.name,
       );

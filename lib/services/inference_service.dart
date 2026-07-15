@@ -85,17 +85,39 @@ class InferenceService extends GetxService {
         await _hive.setSetting(AppConstants.keyLiteRtGpuLoadPending, false);
         await _hive.setSetting(AppConstants.keyLiteRtGpuCrashDetected, true);
       }
+      final hadPendingNpuLoad = isLiteRt && liteRtMode == 'ultra_performance' &&
+          (_hive.getSetting<bool>(
+                AppConstants.keyLiteRtNpuLoadPending,
+                defaultValue: false,
+              ) ??
+              false);
+      if (hadPendingNpuLoad) {
+        await _hive.setSetting(AppConstants.keyLiteRtNpuLoadPending, false);
+        await _hive.setSetting(AppConstants.keyLiteRtNpuCrashDetected, true);
+      }
       final gpuCrashDetected = isLiteRt &&
           (_hive.getSetting<bool>(
                 AppConstants.keyLiteRtGpuCrashDetected,
                 defaultValue: false,
               ) ??
               false);
+      final npuCrashDetected = isLiteRt && liteRtMode == 'ultra_performance' &&
+          (_hive.getSetting<bool>(
+                AppConstants.keyLiteRtNpuCrashDetected,
+                defaultValue: false,
+              ) ??
+              false);
+      // When NPU has crashed, fall through to GPU (auto_fast) for this session.
+      final effectiveLiteRtMode = (liteRtMode == 'ultra_performance' && npuCrashDetected)
+          ? 'auto_fast'
+          : liteRtMode;
       final forceLiteRtCpu = isLiteRt &&
-          (liteRtMode == 'cpu_safe' ||
-              (liteRtMode == 'auto_fast' && gpuCrashDetected));
-      final shouldTryLiteRtGpu =
-          isLiteRt && !forceLiteRtCpu && liteRtMode != 'cpu_safe';
+          (effectiveLiteRtMode == 'cpu_safe' ||
+              (effectiveLiteRtMode == 'auto_fast' && gpuCrashDetected));
+      final shouldTryLiteRtNpu = isLiteRt && !forceLiteRtCpu &&
+          liteRtMode == 'ultra_performance' && !npuCrashDetected;
+      final shouldTryLiteRtGpu = isLiteRt && !forceLiteRtCpu &&
+          (effectiveLiteRtMode == 'auto_fast' || effectiveLiteRtMode == 'gpu_fast');
 
       await unloadModel();
       isLoadingModel.value = true;
@@ -126,10 +148,12 @@ class InferenceService extends GetxService {
         contextSize: finalContextSize,
         deviceTier: deviceTier,
         isTensorSoC: isTensorSoC,
-        liteRtPerformanceMode: liteRtMode,
+        liteRtPerformanceMode: effectiveLiteRtMode,
         forceLiteRtCpu: forceLiteRtCpu,
-        clearLiteRtCache: hadPendingGpuLoad || (isLiteRt && gpuCrashDetected) || contextChanged,
+        clearLiteRtCache: hadPendingGpuLoad || hadPendingNpuLoad ||
+            (isLiteRt && (gpuCrashDetected || npuCrashDetected)) || contextChanged,
         markLiteRtGpuPending: shouldTryLiteRtGpu,
+        markLiteRtNpuPending: shouldTryLiteRtNpu,
         enableLiteRtVision: enableLiteRtVision,
       );
 
@@ -184,9 +208,12 @@ class InferenceService extends GetxService {
       loadedBackend.value = result.backend;
       gpuName.value = result.gpuName;
       gpuLayersUsed.value = result.gpuLayers;
-      isGpuAccelerated.value = result.backend == 'gpu' || result.gpuLayers > 0;
+      isGpuAccelerated.value = result.backend == 'gpu' || result.backend == 'npu' || result.gpuLayers > 0;
       if (isLiteRt && result.backend == 'gpu') {
         await _hive.setSetting(AppConstants.keyLiteRtGpuCrashDetected, false);
+      }
+      if (isLiteRt && result.backend == 'npu') {
+        await _hive.setSetting(AppConstants.keyLiteRtNpuCrashDetected, false);
       }
       contextTokensUsed.value = 0;
       contextTokensTotal.value = finalContextSize;
@@ -431,11 +458,14 @@ class InferenceService extends GetxService {
     required bool forceLiteRtCpu,
     required bool clearLiteRtCache,
     required bool markLiteRtGpuPending,
+    required bool markLiteRtNpuPending,
     required bool enableLiteRtVision,
   }) async {
     var gpuLoadFailed = false;
     try {
-      if (markLiteRtGpuPending) {
+      if (markLiteRtNpuPending) {
+        await _hive.setSetting(AppConstants.keyLiteRtNpuLoadPending, true);
+      } else if (markLiteRtGpuPending) {
         await _hive.setSetting(AppConstants.keyLiteRtGpuLoadPending, true);
       }
       return await _engine!.loadModel(
@@ -451,6 +481,50 @@ class InferenceService extends GetxService {
         onProgress: (p) => modelLoadProgress.value = _normalizeProgress(p),
       );
     } catch (e) {
+      // NPU failed → fall to GPU → fall to CPU
+      if (markLiteRtNpuPending) {
+        await _hive.setSetting(AppConstants.keyLiteRtNpuLoadPending, false);
+        await _hive.setSetting(AppConstants.keyLiteRtNpuCrashDetected, true);
+        print('[Inference] NPU load failed ($e) — falling back to GPU');
+        try {
+          modelLoadProgress.value = 0.0;
+          return await _engine!.loadModel(
+            modelPath: modelPath,
+            modelRuntime: modelRuntime,
+            contextSize: contextSize,
+            deviceTier: deviceTier,
+            isTensorSoC: isTensorSoC,
+            liteRtPerformanceMode: 'auto_fast',
+            forceLiteRtCpu: false,
+            clearLiteRtCache: true,
+            enableLiteRtVision: enableLiteRtVision,
+            onProgress: (p) => modelLoadProgress.value = _normalizeProgress(p),
+          );
+        } catch (gpuError) {
+          print('[Inference] GPU fallback also failed ($gpuError) — falling back to CPU');
+          try {
+            modelLoadProgress.value = 0.0;
+            return await _engine!.loadModel(
+              modelPath: modelPath,
+              modelRuntime: modelRuntime,
+              contextSize: contextSize,
+              deviceTier: deviceTier,
+              isTensorSoC: isTensorSoC,
+              liteRtPerformanceMode: 'cpu_safe',
+              forceLiteRtCpu: true,
+              clearLiteRtCache: true,
+              enableLiteRtVision: enableLiteRtVision,
+              onProgress: (p) => modelLoadProgress.value = _normalizeProgress(p),
+            );
+          } catch (cpuError) {
+            return platform.LoadResult(
+              success: false,
+              message: 'ERROR: Failed to load model - $cpuError',
+            );
+          }
+        }
+      }
+      // GPU failed → CPU (auto_fast only)
       if (markLiteRtGpuPending && liteRtPerformanceMode == 'auto_fast') {
         await _hive.setSetting(AppConstants.keyLiteRtGpuLoadPending, false);
         await _hive.setSetting(AppConstants.keyLiteRtGpuCrashDetected, true);
@@ -481,7 +555,9 @@ class InferenceService extends GetxService {
         message: 'ERROR: Failed to load model - $e',
       );
     } finally {
-      if (markLiteRtGpuPending) {
+      if (markLiteRtNpuPending) {
+        await _hive.setSetting(AppConstants.keyLiteRtNpuLoadPending, false);
+      } else if (markLiteRtGpuPending) {
         if (gpuLoadFailed) {
           await _hive.setSetting(AppConstants.keyLiteRtGpuCrashDetected, true);
         }

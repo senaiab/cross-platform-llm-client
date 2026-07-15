@@ -555,12 +555,16 @@ class SettingsController extends GetxController {
     final normalized = switch (mode) {
       'gpu_fast' => 'gpu_fast',
       'cpu_safe' => 'cpu_safe',
+      'ultra_performance' => 'ultra_performance',
       _ => AppConstants.defaultLiteRtPerformanceMode,
     };
     liteRtPerformanceMode.value = normalized;
     await _hive.setSetting(AppConstants.keyLiteRtPerformanceMode, normalized);
     if (normalized == 'gpu_fast') {
       await _hive.setSetting(AppConstants.keyLiteRtGpuCrashDetected, false);
+    }
+    if (normalized == 'ultra_performance') {
+      await _hive.setSetting(AppConstants.keyLiteRtNpuCrashDetected, false);
     }
   }
 

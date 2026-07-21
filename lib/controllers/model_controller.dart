@@ -309,7 +309,8 @@ class ModelController extends GetxController {
     final decoded = Uri.decodeComponent(segment.split('?').first);
     if (decoded.toLowerCase().endsWith('.gguf') ||
         decoded.toLowerCase().endsWith('.litertlm') ||
-        decoded.toLowerCase().endsWith('.safetensors')) {
+        decoded.toLowerCase().endsWith('.safetensors') ||
+        decoded.toLowerCase().endsWith('.pte')) {
       return decoded;
     }
     return '$decoded.gguf';
@@ -926,11 +927,13 @@ class ModelController extends GetxController {
     }
     final runtimeLabel = isLiteRt
         ? 'LiteRT-LM'
-        : lower.endsWith('.gguf')
-            ? 'GGUF'
-            : lower.endsWith('.safetensors')
-                ? 'Image model'
-                : 'Local model';
+        : lower.endsWith('.pte')
+            ? 'ExecuTorch QNN'
+            : lower.endsWith('.gguf')
+                ? 'GGUF'
+                : lower.endsWith('.safetensors')
+                    ? 'Image model'
+                    : 'Local model';
     final loadedName = _inference.loadedModelName.value;
     final hasLoadedModel =
         _inference.isModelLoaded.value && loadedName.isNotEmpty;
@@ -1137,9 +1140,10 @@ class ModelController extends GetxController {
 
         if (!lower.endsWith('.gguf') &&
             !lower.endsWith('.litertlm') &&
-            !lower.endsWith('.safetensors')) {
+            !lower.endsWith('.safetensors') &&
+            !lower.endsWith('.pte')) {
           Get.snackbar('Unsupported Model',
-              'Only .gguf, .litertlm, and .safetensors files can be imported.',
+              'Only .gguf, .litertlm, .pte, and .safetensors files can be imported.',
               snackPosition: SnackPosition.BOTTOM);
           return;
         }

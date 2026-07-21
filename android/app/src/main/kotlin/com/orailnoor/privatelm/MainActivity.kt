@@ -21,6 +21,9 @@ import java.net.URL
 import kotlin.concurrent.thread
 import kotlin.system.exitProcess
 import org.json.JSONObject
+import com.orailnoor.privatelm.executorch.ExecuTorchBridge
+import com.orailnoor.privatelm.executorch.QnnDeviceInfo
+import com.orailnoor.privatelm.executorch.QnnPteState
 
 class MainActivity : FlutterActivity() {
     private val importChannelName = "com.aichat.ai_chat/model_import"
@@ -195,6 +198,76 @@ class MainActivity : FlutterActivity() {
             }
         }
         setupTermuxBridge(flutterEngine)
+        setupExecuTorchBridge(flutterEngine)
+    }
+
+    private fun setupExecuTorchBridge(flutterEngine: FlutterEngine) {
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.orailnoor.privatelm/executorch")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "deviceInfo" -> {
+                        result.success(mapOf(
+                            "htpArch" to QnnDeviceInfo.htpArch,
+                            "systemQnnVersion" to QnnDeviceInfo.systemQnnVersion,
+                            "pteSuffix" to QnnDeviceInfo.pteSuffix,
+                        ))
+                    }
+                    "load" -> {
+                        val modelPath = call.argument<String>("modelPath") ?: run {
+                            result.error("INVALID_ARG", "modelPath required", null); return@setMethodCallHandler
+                        }
+                        val tokenizerPath = call.argument<String>("tokenizerPath") ?: run {
+                            result.error("INVALID_ARG", "tokenizerPath required", null); return@setMethodCallHandler
+                        }
+                        val temperature = call.argument<Double>("temperature")?.toFloat() ?: 0.7f
+                        if (QnnPteState.isBlocked(modelPath)) {
+                            result.error("BLOCKED", "PTE load skipped — failed earlier this session", null)
+                            return@setMethodCallHandler
+                        }
+                        thread(name = "executorch-load") {
+                            val ok = ExecuTorchBridge.load(modelPath, tokenizerPath, temperature)
+                            if (!ok) QnnPteState.recordFailure(modelPath)
+                            else QnnPteState.pteEverSucceeded = true
+                            mainHandler.post { result.success(ok) }
+                        }
+                    }
+                    "generate" -> {
+                        val prompt = call.argument<String>("prompt") ?: run {
+                            result.error("INVALID_ARG", "prompt required", null); return@setMethodCallHandler
+                        }
+                        val maxTokens = call.argument<Int>("maxTokens") ?: 2048
+                        // Streaming: tokens sent via event channel pattern using invokeMethod
+                        thread(name = "executorch-generate") {
+                            var tps = 0f
+                            try {
+                                tps = ExecuTorchBridge.generateStream(prompt, maxTokens) { token ->
+                                    mainHandler.post {
+                                        (flutterEngine.dartExecutor.binaryMessenger
+                                            .let { bm ->
+                                                MethodChannel(bm, "com.orailnoor.privatelm/executorch")
+                                            }).invokeMethod("onToken", token)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                mainHandler.post { result.error("GENERATE_FAILED", e.message, null) }
+                                return@thread
+                            }
+                            mainHandler.post { result.success(mapOf("tps" to tps)) }
+                        }
+                    }
+                    "stop" -> {
+                        ExecuTorchBridge.stop()
+                        result.success(null)
+                    }
+                    "unload" -> {
+                        ExecuTorchBridge.unload()
+                        QnnPteState.reset()
+                        result.success(null)
+                    }
+                    "isLoaded" -> result.success(ExecuTorchBridge.isLoaded)
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     private fun setupTermuxBridge(flutterEngine: FlutterEngine) {

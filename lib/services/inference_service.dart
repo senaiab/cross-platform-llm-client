@@ -4,6 +4,7 @@ import 'hive_service.dart';
 import '../core/constants.dart';
 import 'device_info_service.dart';
 import 'app_log_service.dart';
+import 'executorch_service.dart';
 
 // Conditionally import llama_flutter_android — only on Android
 import 'inference_android.dart' if (dart.library.html) 'inference_stub.dart'
@@ -65,6 +66,10 @@ class InferenceService extends GetxService {
 
     if (modelPath.toLowerCase().endsWith('.safetensors')) {
       return 'ERROR: Cannot load image generation models (.safetensors) into the local text engine. Native local image generation requires the upcoming stable-diffusion engine update. Use Cloud Stability AI for now.';
+    }
+
+    if (modelPath.toLowerCase().endsWith('.pte')) {
+      return _loadExecuTorchModel(modelPath, modelName: modelName);
     }
 
     try {
@@ -243,6 +248,9 @@ class InferenceService extends GetxService {
   }
 
   Future<void> unloadModel() async {
+    if (_isPteLoaded) {
+      await Get.find<ExecuTorchService>().unload();
+    }
     final engine = _engine;
     _engine = null;
     if (engine != null) {
@@ -272,6 +280,16 @@ class InferenceService extends GetxService {
     String? audioPath,
     void Function(String token)? onToken,
   }) async {
+    // Route to ExecuTorch when a .pte model is loaded
+    if (_isPteLoaded) {
+      return _generateExecuTorch(
+        prompt: prompt,
+        systemPrompt: systemPrompt,
+        conversationHistory: conversationHistory,
+        onToken: onToken,
+      );
+    }
+
     if (!supportsLocalInference || _engine == null || !isModelLoaded.value) {
       return 'ERROR: No model loaded. Go to Models tab to download and load one.';
     }
@@ -401,6 +419,9 @@ class InferenceService extends GetxService {
     tokenCount.value = 0;
     generationSource.value = '';
     streamingText.value = '';
+    if (_isPteLoaded) {
+      Get.find<ExecuTorchService>().stop();
+    }
     final engine = _engine;
     if (engine != null) {
       unawaited(engine.stop().timeout(const Duration(seconds: 1)).catchError(
@@ -574,7 +595,82 @@ class InferenceService extends GetxService {
 
   String _runtimeFor(String modelPath, String? modelRuntime) {
     final runtime = modelRuntime?.toLowerCase();
-    if (runtime == 'litert' || runtime == 'llama') return runtime!;
+    if (runtime == 'litert' || runtime == 'llama' || runtime == 'executorch') return runtime!;
+    if (modelPath.toLowerCase().endsWith('.pte')) return 'executorch';
     return modelPath.toLowerCase().endsWith('.litertlm') ? 'litert' : 'llama';
+  }
+
+  // ── ExecuTorch / PTE delegation ──────────────────────────────────────
+
+  Future<String> _loadExecuTorchModel(String modelPath, {String? modelName}) async {
+    if (!Get.isRegistered<ExecuTorchService>()) {
+      return 'ERROR: ExecuTorch service not available.';
+    }
+    final et = Get.find<ExecuTorchService>();
+    final tokenizerPath = ExecuTorchService.findTokenizer(modelPath);
+    if (tokenizerPath == null) {
+      return 'ERROR: No tokenizer found alongside ${modelPath.split('/').last}. '
+          'Place tokenizer.bin in the same folder.';
+    }
+    isLoadingModel.value = true;
+    try {
+      final error = await et.loadModel(modelPath, tokenizerPath);
+      if (error != null) return 'ERROR: $error';
+      isModelLoaded.value = true;
+      loadedModelName.value = modelName ?? modelPath.split('/').last;
+      loadedModelRuntime.value = 'ExecuTorch QNN';
+      loadedBackend.value = 'npu';
+      isGpuAccelerated.value = true;
+      gpuName.value = 'Qualcomm HTP (${et.htpArch.value})';
+      return 'ok';
+    } finally {
+      isLoadingModel.value = false;
+    }
+  }
+
+  bool get _isPteLoaded =>
+      Get.isRegistered<ExecuTorchService>() &&
+      Get.find<ExecuTorchService>().isLoaded.value;
+
+  Future<String> _generateExecuTorch({
+    required String prompt,
+    String? systemPrompt,
+    List<Map<String, String>>? conversationHistory,
+    void Function(String token)? onToken,
+  }) async {
+    final et = Get.find<ExecuTorchService>();
+
+    // Build Qwen chat prompt
+    final sb = StringBuffer();
+    if (systemPrompt != null && systemPrompt.isNotEmpty) {
+      sb.write('<|im_start|>system\n$systemPrompt<|im_end|>\n');
+    }
+    if (conversationHistory != null) {
+      for (final msg in conversationHistory) {
+        final role = msg['role'] ?? 'user';
+        final content = msg['content'] ?? '';
+        sb.write('<|im_start|>$role\n$content<|im_end|>\n');
+      }
+    }
+    sb.write('<|im_start|>user\n$prompt<|im_end|>\n<|im_start|>assistant\n');
+
+    isGenerating.value = true;
+    streamingText.value = '';
+    try {
+      final result = await et.generate(
+        sb.toString(),
+        maxTokens: 2048,
+        onToken: (token) {
+          streamingText.value += token;
+          tokensPerSecond.value = et.tokensPerSecond.value;
+          onToken?.call(token);
+        },
+      );
+      tokensPerSecond.value = et.tokensPerSecond.value;
+      return result;
+    } finally {
+      isGenerating.value = false;
+      streamingText.value = '';
+    }
   }
 }

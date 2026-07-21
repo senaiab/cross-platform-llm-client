@@ -21,6 +21,7 @@ import 'services/download_service.dart';
 import 'services/device_info_service.dart';
 import 'services/local_image_service.dart';
 import 'services/tool_calling_service.dart';
+import 'services/executorch_service.dart';
 import 'services/mcp_service.dart';
 import 'services/rag_service.dart';
 import 'services/app_log_service.dart';
@@ -66,6 +67,7 @@ void main() {
       Get.put(CloudModelController());
 
       Get.put(InferenceService());
+      await Get.putAsync(() => ExecuTorchService().init());
       Get.put(CloudService());
       Get.put(McpService());
       await Get.putAsync(() => RagService().init());

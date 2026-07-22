@@ -16,6 +16,11 @@ object QnnPteState {
     fun isBlocked(path: String): Boolean =
         path in failedPaths || System.currentTimeMillis() < backoffUntilMs
 
+    fun clearFailure(path: String) {
+        failedPaths.remove(path)
+        backoffUntilMs = 0
+    }
+
     fun reset() {
         failedPaths.clear()
         backoffUntilMs = 0

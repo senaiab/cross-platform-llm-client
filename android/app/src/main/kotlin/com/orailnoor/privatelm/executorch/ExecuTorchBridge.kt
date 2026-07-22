@@ -17,20 +17,26 @@ object ExecuTorchBridge {
         }
     }
 
-    fun load(modelPath: String, tokenizerPath: String, temperature: Float): Boolean {
+    /** Returns null on success, error string on failure. */
+    fun load(modelPath: String, tokenizerPath: String, temperature: Float, nativeLibDir: String? = null): String? {
         return try {
+            Log.i("ExecuTorch", "load() modelPath=$modelPath tokenizerPath=$tokenizerPath nativeLibDir=$nativeLibDir")
             val mod = LlmModule(modelPath, tokenizerPath, temperature)
             val rc = mod.load()
             if (rc != 0) {
-                Log.e("ExecuTorch", "LlmModule.load() returned $rc for $modelPath")
-                return false
+                val msg = "LlmModule.load() returned rc=$rc (model=$modelPath)"
+                Log.e("ExecuTorch", msg)
+                module = null
+                return msg
             }
             module = mod
-            true
+            Log.i("ExecuTorch", "load() success")
+            null
         } catch (t: Throwable) {
-            Log.e("ExecuTorch", "LlmModule load failed: ${t.message}")
+            val msg = "LlmModule load threw ${t.javaClass.simpleName}: ${t.message}"
+            Log.e("ExecuTorch", msg)
             module = null
-            false
+            msg
         }
     }
 

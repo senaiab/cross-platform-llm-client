@@ -220,15 +220,17 @@ class MainActivity : FlutterActivity() {
                             result.error("INVALID_ARG", "tokenizerPath required", null); return@setMethodCallHandler
                         }
                         val temperature = call.argument<Double>("temperature")?.toFloat() ?: 0.7f
-                        if (QnnPteState.isBlocked(modelPath)) {
-                            result.error("BLOCKED", "PTE load skipped — failed earlier this session", null)
-                            return@setMethodCallHandler
-                        }
+                        QnnPteState.clearFailure(modelPath)
+                        val nativeLibDir = applicationInfo.nativeLibraryDir
+                        Log.i("ExecuTorch", "nativeLibraryDir=$nativeLibDir")
                         thread(name = "executorch-load") {
-                            val ok = ExecuTorchBridge.load(modelPath, tokenizerPath, temperature)
-                            if (!ok) QnnPteState.recordFailure(modelPath)
+                            val err = ExecuTorchBridge.load(modelPath, tokenizerPath, temperature, nativeLibDir)
+                            if (err != null) QnnPteState.recordFailure(modelPath)
                             else QnnPteState.pteEverSucceeded = true
-                            mainHandler.post { result.success(ok) }
+                            mainHandler.post {
+                                if (err != null) result.error("LOAD_FAILED", err, null)
+                                else result.success(true)
+                            }
                         }
                     }
                     "generate" -> {

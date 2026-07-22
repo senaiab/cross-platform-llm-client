@@ -14,6 +14,15 @@ object ExecuTorchBridge {
         private set
 
     init {
+        // libexecutorch.so must be loaded first so its register_backend symbol
+        // is visible via RTLD_DEFAULT when libqnn_executorch_backend.so's
+        // static constructor runs and tries to self-register.
+        try {
+            System.loadLibrary("executorch")
+            Log.i("ExecuTorch", "libexecutorch loaded")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w("ExecuTorch", "libexecutorch load failed (may already be loaded): ${e.message}")
+        }
         try {
             System.loadLibrary("qnn_executorch_backend")
             qnnBackendLoaded = true

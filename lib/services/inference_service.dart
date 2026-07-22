@@ -608,21 +608,29 @@ class InferenceService extends GetxService {
     }
     final et = Get.find<ExecuTorchService>();
     final tokenizerPath = ExecuTorchService.findTokenizer(modelPath);
+    final log = Get.find<AppLogService>();
+    log.info('[ExecuTorch] Loading: $modelPath');
     if (tokenizerPath == null) {
+      log.error('[ExecuTorch] No tokenizer found for $modelPath');
       return 'ERROR: No tokenizer found alongside ${modelPath.split('/').last}. '
-          'Place tokenizer.bin in the same folder.';
+          'Place tokenizer.bin in /storage/emulated/0/LLM-MODELS/ or the same folder.';
     }
+    log.info('[ExecuTorch] Tokenizer: $tokenizerPath');
     isLoadingModel.value = true;
     try {
       final error = await et.loadModel(modelPath, tokenizerPath);
-      if (error != null) return 'ERROR: $error';
+      if (error != null) {
+        log.error('[ExecuTorch] Load failed: $error');
+        return 'ERROR: $error';
+      }
       isModelLoaded.value = true;
       loadedModelName.value = modelName ?? modelPath.split('/').last;
       loadedModelRuntime.value = 'ExecuTorch QNN';
       loadedBackend.value = 'npu';
       isGpuAccelerated.value = true;
       gpuName.value = 'Qualcomm HTP (${et.htpArch.value})';
-      return 'ok';
+      log.info('[ExecuTorch] Loaded OK: ${loadedModelName.value}');
+      return 'Model loaded — ExecuTorch QNN NPU (HTP ${et.htpArch.value})';
     } finally {
       isLoadingModel.value = false;
     }

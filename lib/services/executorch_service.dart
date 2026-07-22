@@ -96,15 +96,27 @@ class ExecuTorchService extends GetxService {
   }
 
   /// Finds the tokenizer alongside a .pte file.
-  /// Checks <stem>.bin, tokenizer.bin, tokenizer.model in same dir.
+  /// Checks <stem>.bin, tokenizer.bin, tokenizer.model in same dir,
+  /// then falls back to common external storage locations.
   static String? findTokenizer(String ptePath) {
     final dir = File(ptePath).parent;
     final stem = File(ptePath).uri.pathSegments.last.replaceAll('.pte', '');
+    const externalDirs = [
+      '/storage/emulated/0/LLM-MODELS',
+      '/storage/emulated/0/Download',
+      '/storage/emulated/0/Documents',
+    ];
     final candidates = [
       File('${dir.path}/$stem.bin'),
       File('${dir.path}/$stem-tokenizer.bin'),
       File('${dir.path}/tokenizer.bin'),
       File('${dir.path}/tokenizer.model'),
+      for (final d in externalDirs) ...[
+        File('$d/tokenizer.bin'),
+        File('$d/tokenizer.model'),
+        File('$d/$stem.bin'),
+        File('$d/$stem-tokenizer.bin'),
+      ],
     ];
     return candidates.firstWhereOrNull((f) => f.existsSync())?.path;
   }

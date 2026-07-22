@@ -20,7 +20,9 @@ class ExecuTorchService extends GetxService {
     try {
       final info = await _channel.invokeMethod<Map>('deviceInfo');
       htpArch.value = info?['htpArch']?.toString() ?? '';
-      log('ExecuTorch device: arch=${htpArch.value}, QNN=${info?['systemQnnVersion'] ?? 'unknown'}');
+      final qnnLoaded = info?['qnnBackendLoaded'] as bool? ?? false;
+      final qnnErr = info?['qnnBackendError']?.toString() ?? '';
+      log('ExecuTorch device: arch=${htpArch.value}, QNN=${info?['systemQnnVersion'] ?? 'unknown'}, backendLoaded=$qnnLoaded${qnnErr.isNotEmpty ? ', backendErr=$qnnErr' : ''}');
     } catch (e) {
       log('ExecuTorch deviceInfo failed: $e');
     }

@@ -210,6 +210,8 @@ class MainActivity : FlutterActivity() {
                             "htpArch" to QnnDeviceInfo.htpArch,
                             "systemQnnVersion" to QnnDeviceInfo.systemQnnVersion,
                             "pteSuffix" to QnnDeviceInfo.pteSuffix,
+                            "qnnBackendLoaded" to ExecuTorchBridge.qnnBackendLoaded,
+                            "qnnBackendError" to (ExecuTorchBridge.qnnBackendError ?: ""),
                         ))
                     }
                     "load" -> {

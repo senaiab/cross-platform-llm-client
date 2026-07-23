@@ -53,8 +53,20 @@ object ExecuTorchBridge {
             }
         }
 
+        // Pre-flight: verify file accessibility
+        val pteFile = java.io.File(modelPath)
+        Log.i("ExecuTorch", "PTE exists=${pteFile.exists()} size=${pteFile.length()} readable=${pteFile.canRead()}")
+        val tokFile = java.io.File(tokenizerPath)
+        Log.i("ExecuTorch", "Tokenizer exists=${tokFile.exists()} size=${tokFile.length()} readable=${tokFile.canRead()}")
+
+        // Check for sibling files that might be external constants
+        val modelDir = pteFile.parentFile?.absolutePath ?: ""
+        val siblings = pteFile.parentFile?.list()?.joinToString(", ") ?: "none"
+        Log.i("ExecuTorch", "Model dir: $modelDir — siblings: $siblings")
+
         return try {
-            val mod = LlmModule(modelPath, tokenizerPath, temperature)
+            // Pass model directory as dataDir in case the PTE has external constants
+            val mod = LlmModule(modelPath, tokenizerPath, temperature, modelDir)
             val rc = mod.load()
             if (rc != 0) {
                 val errorName = execuTorchErrorName(rc)

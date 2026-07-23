@@ -85,7 +85,7 @@ object ExecuTorchBridge {
             val rc = mod.load()
             if (rc != 0) {
                 val errorName = execuTorchErrorName(rc)
-                val msg = "LlmModule.load() rc=$rc ($errorName) — qnnLoaded=$qnnBackendLoaded"
+                val msg = "LlmModule.load() rc=$rc ($errorName) tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded"
                 Log.e("ExecuTorch", msg)
                 if (!qnnBackendLoaded) Log.e("ExecuTorch", "QNN backend missing: $qnnBackendError")
                 module = null

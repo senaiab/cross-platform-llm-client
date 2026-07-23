@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:get/get.dart';
 import 'hive_service.dart';
 import '../core/constants.dart';
@@ -616,9 +617,27 @@ class InferenceService extends GetxService {
           'Place tokenizer.bin in /storage/emulated/0/LLM-MODELS/ or the same folder.';
     }
     log.info('[ExecuTorch] Tokenizer: $tokenizerPath');
+
+    // ExecuTorch's C++ open() cannot access external storage paths.
+    // Copy tokenizer to internal storage alongside PTE if needed.
+    String effectiveTokenizerPath = tokenizerPath;
+    if (tokenizerPath.startsWith('/storage/') || tokenizerPath.startsWith('/sdcard/')) {
+      final pteDir = modelPath.substring(0, modelPath.lastIndexOf('/'));
+      final tokenizerName = tokenizerPath.split('/').last;
+      final internalTokPath = '$pteDir/$tokenizerName';
+      final internalTokFile = File(internalTokPath);
+      if (!internalTokFile.existsSync()) {
+        log.info('[ExecuTorch] Copying tokenizer to internal storage...');
+        await File(tokenizerPath).copy(internalTokPath);
+        log.info('[ExecuTorch] Tokenizer copied to: $internalTokPath');
+      }
+      effectiveTokenizerPath = internalTokPath;
+      log.info('[ExecuTorch] Using internal tokenizer: $effectiveTokenizerPath');
+    }
+
     isLoadingModel.value = true;
     try {
-      final error = await et.loadModel(modelPath, tokenizerPath);
+      final error = await et.loadModel(modelPath, effectiveTokenizerPath);
       if (error != null) {
         log.error('[ExecuTorch] Load failed: $error');
         return 'ERROR: $error';

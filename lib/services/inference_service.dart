@@ -626,8 +626,11 @@ class InferenceService extends GetxService {
       final tokenizerName = tokenizerPath.split('/').last;
       final internalTokPath = '$pteDir/$tokenizerName';
       final internalTokFile = File(internalTokPath);
-      // Always re-copy if missing or suspiciously small (< 100 KB = partial/corrupt).
-      final needsCopy = !internalTokFile.existsSync() || internalTokFile.lengthSync() < 102400;
+      final externalSize = File(tokenizerPath).lengthSync();
+      // Re-copy if missing, suspiciously small, or external changed (size mismatch = stale cache).
+      final needsCopy = !internalTokFile.existsSync()
+          || internalTokFile.lengthSync() < 102400
+          || internalTokFile.lengthSync() != externalSize;
       if (needsCopy) {
         log.info('[ExecuTorch] Copying tokenizer (${tokenizerPath.split('/').last}) to internal storage...');
         final copyError = await et.copyTokenizer(tokenizerPath, internalTokPath);

@@ -619,16 +619,23 @@ class InferenceService extends GetxService {
     log.info('[ExecuTorch] Tokenizer: $tokenizerPath');
 
     // ExecuTorch's C++ open() cannot access external storage paths.
-    // Copy tokenizer to internal storage alongside PTE if needed.
+    // Copy tokenizer to internal storage via Kotlin (which can check MANAGE_EXTERNAL_STORAGE).
     String effectiveTokenizerPath = tokenizerPath;
     if (tokenizerPath.startsWith('/storage/') || tokenizerPath.startsWith('/sdcard/')) {
       final pteDir = modelPath.substring(0, modelPath.lastIndexOf('/'));
       final tokenizerName = tokenizerPath.split('/').last;
       final internalTokPath = '$pteDir/$tokenizerName';
-      final internalTokFile = File(internalTokPath);
-      if (!internalTokFile.existsSync()) {
-        log.info('[ExecuTorch] Copying tokenizer to internal storage...');
-        await File(tokenizerPath).copy(internalTokPath);
+      if (!File(internalTokPath).existsSync()) {
+        log.info('[ExecuTorch] Copying tokenizer to internal storage via Kotlin...');
+        final copyError = await et.copyTokenizer(tokenizerPath, internalTokPath);
+        if (copyError == 'PERMISSION_REQUIRED') {
+          log.error('[ExecuTorch] All files access not granted — opening Settings');
+          await et.openAllFilesSettings();
+          return 'ERROR: Grant "All files access" to PrivateLM in Settings, then try loading the model again.';
+        } else if (copyError != null) {
+          log.error('[ExecuTorch] Tokenizer copy failed: $copyError');
+          return 'ERROR: Could not copy tokenizer: $copyError';
+        }
         log.info('[ExecuTorch] Tokenizer copied to: $internalTokPath');
       }
       effectiveTokenizerPath = internalTokPath;

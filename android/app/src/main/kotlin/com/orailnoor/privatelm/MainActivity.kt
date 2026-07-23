@@ -269,6 +269,45 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "isLoaded" -> result.success(ExecuTorchBridge.isLoaded)
+                    "hasAllFilesAccess" -> {
+                        val granted = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                            Environment.isExternalStorageManager()
+                        } else true
+                        result.success(granted)
+                    }
+                    "openAllFilesSettings" -> {
+                        try {
+                            startActivity(
+                                Intent(android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
+                                    data = Uri.parse("package:${packageName}")
+                                }
+                            )
+                        } catch (_: Exception) {
+                            startActivity(Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                        }
+                        result.success(null)
+                    }
+                    "copyTokenizer" -> {
+                        val src = call.argument<String>("src") ?: run {
+                            result.error("INVALID_ARG", "src required", null); return@setMethodCallHandler
+                        }
+                        val dst = call.argument<String>("dst") ?: run {
+                            result.error("INVALID_ARG", "dst required", null); return@setMethodCallHandler
+                        }
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R &&
+                            !Environment.isExternalStorageManager()) {
+                            result.error("PERMISSION_REQUIRED", "All files access not granted", null)
+                            return@setMethodCallHandler
+                        }
+                        thread(name = "et-copy-tokenizer") {
+                            try {
+                                File(src).copyTo(File(dst), overwrite = false)
+                                mainHandler.post { result.success(null) }
+                            } catch (e: Exception) {
+                                mainHandler.post { result.error("COPY_FAILED", e.message, null) }
+                            }
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

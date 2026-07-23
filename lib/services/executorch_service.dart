@@ -89,6 +89,29 @@ class ExecuTorchService extends GetxService {
     isGenerating.value = false;
   }
 
+  Future<bool> hasAllFilesAccess() async {
+    if (!Platform.isAndroid) return true;
+    return await _channel.invokeMethod<bool>('hasAllFilesAccess') ?? true;
+  }
+
+  Future<void> openAllFilesSettings() async {
+    if (!Platform.isAndroid) return;
+    await _channel.invokeMethod('openAllFilesSettings');
+  }
+
+  /// Copies [src] (external storage path) to [dst] (internal path) via Kotlin.
+  /// Returns null on success, 'PERMISSION_REQUIRED' if All Files Access is needed,
+  /// or another error string on failure.
+  Future<String?> copyTokenizer(String src, String dst) async {
+    if (!Platform.isAndroid) return null;
+    try {
+      await _channel.invokeMethod<void>('copyTokenizer', {'src': src, 'dst': dst});
+      return null;
+    } on PlatformException catch (e) {
+      return e.code == 'PERMISSION_REQUIRED' ? 'PERMISSION_REQUIRED' : (e.message ?? e.code);
+    }
+  }
+
   Future<void> unload() async {
     if (!Platform.isAndroid) return;
     runCatching(() => _channel.invokeMethod('unload'));

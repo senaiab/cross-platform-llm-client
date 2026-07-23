@@ -65,8 +65,11 @@ object ExecuTorchBridge {
         Log.i("ExecuTorch", "Model dir: $modelDir — siblings: $siblings")
 
         return try {
-            // Pass model directory as dataDir in case the PTE has external constants
-            val mod = LlmModule(modelPath, tokenizerPath, temperature, modelDir)
+            // 3-arg constructor: no dataDir. Passing modelDir as dataDir caused ExecuTorch
+            // to scan the directory, find tokenizer.bin, and misinterpret it as external
+            // model weight data (wrong format) → AccessFailed. The tokenizer is now
+            // copied to internal storage before this call, so C++ can find it.
+            val mod = LlmModule(modelPath, tokenizerPath, temperature)
             val rc = mod.load()
             if (rc != 0) {
                 val errorName = execuTorchErrorName(rc)

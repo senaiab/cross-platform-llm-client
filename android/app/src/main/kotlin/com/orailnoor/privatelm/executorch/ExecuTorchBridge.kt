@@ -64,6 +64,18 @@ object ExecuTorchBridge {
         val siblings = pteFile.parentFile?.list()?.joinToString(", ") ?: "none"
         Log.i("ExecuTorch", "Model dir: $modelDir — siblings: $siblings")
 
+        // Pre-flight: verify both files are readable before handing off to C++.
+        if (!pteFile.exists()) return "PTE file not found: $modelPath"
+        if (!pteFile.canRead()) return "PTE file not readable (permission?): $modelPath"
+        if (!tokFile.exists()) return "Tokenizer not found: $tokenizerPath"
+        if (!tokFile.canRead()) return "Tokenizer not readable (permission?): $tokenizerPath"
+        val tokHeader = try {
+            val buf = ByteArray(8)
+            java.io.FileInputStream(tokFile).use { it.read(buf) }
+            buf.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) { "read-err:${e.message?.take(30)}" }
+        Log.i("ExecuTorch", "pre-flight OK — pte=${pteFile.length()}B tok=${tokFile.length()}B tokHeader=$tokHeader")
+
         return try {
             // 3-arg constructor: no dataDir. Passing modelDir as dataDir caused ExecuTorch
             // to scan the directory, find tokenizer.bin, and misinterpret it as external

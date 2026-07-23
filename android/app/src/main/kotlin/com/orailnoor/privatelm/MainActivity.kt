@@ -301,7 +301,7 @@ class MainActivity : FlutterActivity() {
                         }
                         thread(name = "et-copy-tokenizer") {
                             try {
-                                File(src).copyTo(File(dst), overwrite = false)
+                                File(src).copyTo(File(dst), overwrite = true)
                                 mainHandler.post { result.success(null) }
                             } catch (e: Exception) {
                                 mainHandler.post { result.error("COPY_FAILED", e.message, null) }

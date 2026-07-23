@@ -625,8 +625,11 @@ class InferenceService extends GetxService {
       final pteDir = modelPath.substring(0, modelPath.lastIndexOf('/'));
       final tokenizerName = tokenizerPath.split('/').last;
       final internalTokPath = '$pteDir/$tokenizerName';
-      if (!File(internalTokPath).existsSync()) {
-        log.info('[ExecuTorch] Copying tokenizer to internal storage via Kotlin...');
+      final internalTokFile = File(internalTokPath);
+      // Always re-copy if missing or suspiciously small (< 100 KB = partial/corrupt).
+      final needsCopy = !internalTokFile.existsSync() || internalTokFile.lengthSync() < 102400;
+      if (needsCopy) {
+        log.info('[ExecuTorch] Copying tokenizer (${tokenizerPath.split('/').last}) to internal storage...');
         final copyError = await et.copyTokenizer(tokenizerPath, internalTokPath);
         if (copyError == 'PERMISSION_REQUIRED') {
           log.error('[ExecuTorch] All files access not granted — opening Settings');
@@ -636,11 +639,14 @@ class InferenceService extends GetxService {
           log.error('[ExecuTorch] Tokenizer copy failed: $copyError');
           return 'ERROR: Could not copy tokenizer: $copyError';
         }
-        log.info('[ExecuTorch] Tokenizer copied to: $internalTokPath');
+        final copiedSize = File(internalTokPath).lengthSync();
+        log.info('[ExecuTorch] Tokenizer copied — ${(copiedSize / 1024 / 1024).toStringAsFixed(1)} MB at $internalTokPath');
+      } else {
+        log.info('[ExecuTorch] Using cached internal tokenizer (${(internalTokFile.lengthSync() / 1024 / 1024).toStringAsFixed(1)} MB)');
       }
       effectiveTokenizerPath = internalTokPath;
-      log.info('[ExecuTorch] Using internal tokenizer: $effectiveTokenizerPath');
     }
+    log.info('[ExecuTorch] LlmModule paths — model: $modelPath  tokenizer: $effectiveTokenizerPath');
 
     isLoadingModel.value = true;
     try {

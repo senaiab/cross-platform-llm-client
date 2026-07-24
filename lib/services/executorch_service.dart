@@ -132,16 +132,21 @@ class ExecuTorchService extends GetxService {
       '/storage/emulated/0/Documents',
     ];
     final candidates = [
+      // Model-specific files alongside PTE (these are deliberately placed, trust them)
       File('${dir.path}/$stem.bin'),
       File('${dir.path}/$stem-tokenizer.bin'),
-      File('${dir.path}/tokenizer.bin'),
-      File('${dir.path}/tokenizer.model'),
+      // External storage dirs preferred over generic sibling tokenizer.bin so that
+      // an updated external tokenizer triggers a fresh copy rather than reusing a
+      // potentially stale internal cache named tokenizer.bin.
       for (final d in externalDirs) ...[
-        File('$d/tokenizer.bin'),
-        File('$d/tokenizer.model'),
         File('$d/$stem.bin'),
         File('$d/$stem-tokenizer.bin'),
+        File('$d/tokenizer.bin'),
+        File('$d/tokenizer.model'),
       ],
+      // Generic sibling files last (may be our own internal cache copy)
+      File('${dir.path}/tokenizer.bin'),
+      File('${dir.path}/tokenizer.model'),
     ];
     return candidates.firstWhereOrNull((f) => f.existsSync())?.path;
   }

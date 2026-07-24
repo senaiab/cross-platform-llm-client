@@ -287,6 +287,11 @@ class MainActivity : FlutterActivity() {
                         }
                         result.success(null)
                     }
+                    "getEtModelsDir" -> {
+                        val dir = File(filesDir, "et_models")
+                        dir.mkdirs()
+                        result.success(dir.absolutePath)
+                    }
                     "copyTokenizer" -> {
                         val src = call.argument<String>("src") ?: run {
                             result.error("INVALID_ARG", "src required", null); return@setMethodCallHandler

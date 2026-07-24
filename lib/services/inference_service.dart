@@ -618,37 +618,34 @@ class InferenceService extends GetxService {
     }
     log.info('[ExecuTorch] Tokenizer: $tokenizerPath');
 
-    // ExecuTorch's C++ open() cannot access external storage paths.
-    // Copy tokenizer to internal storage via Kotlin (which can check MANAGE_EXTERNAL_STORAGE).
-    String effectiveTokenizerPath = tokenizerPath;
-    if (tokenizerPath.startsWith('/storage/') || tokenizerPath.startsWith('/sdcard/')) {
-      final pteDir = modelPath.substring(0, modelPath.lastIndexOf('/'));
-      final tokenizerName = tokenizerPath.split('/').last;
-      final internalTokPath = '$pteDir/$tokenizerName';
-      final internalTokFile = File(internalTokPath);
-      final externalSize = File(tokenizerPath).lengthSync();
-      // Re-copy if missing, suspiciously small, or external changed (size mismatch = stale cache).
-      final needsCopy = !internalTokFile.existsSync()
-          || internalTokFile.lengthSync() < 102400
-          || internalTokFile.lengthSync() != externalSize;
-      if (needsCopy) {
-        log.info('[ExecuTorch] Copying tokenizer (${tokenizerPath.split('/').last}) to internal storage...');
-        final copyError = await et.copyTokenizer(tokenizerPath, internalTokPath);
-        if (copyError == 'PERMISSION_REQUIRED') {
-          log.error('[ExecuTorch] All files access not granted — opening Settings');
-          await et.openAllFilesSettings();
-          return 'ERROR: Grant "All files access" to PrivateLM in Settings, then try loading the model again.';
-        } else if (copyError != null) {
-          log.error('[ExecuTorch] Tokenizer copy failed: $copyError');
-          return 'ERROR: Could not copy tokenizer: $copyError';
-        }
-        final copiedSize = File(internalTokPath).lengthSync();
-        log.info('[ExecuTorch] Tokenizer copied — ${(copiedSize / 1024 / 1024).toStringAsFixed(1)} MB at $internalTokPath');
-      } else {
-        log.info('[ExecuTorch] Using cached internal tokenizer (${(internalTokFile.lengthSync() / 1024 / 1024).toStringAsFixed(1)} MB)');
+    // ExecuTorch C++ open() cannot reliably access /storage/emulated/0/ paths.
+    // Always copy the tokenizer to filesDir/et_models/ (truly internal, no permission needed).
+    final internalDir = await et.getEtModelsDir();
+    final tokenizerName = tokenizerPath.split('/').last;
+    final internalTokPath = '$internalDir/$tokenizerName';
+    final internalTokFile = File(internalTokPath);
+    final externalSize = File(tokenizerPath).lengthSync();
+    // Re-copy if missing, suspiciously small, or external changed size (stale cache).
+    final needsCopy = !internalTokFile.existsSync()
+        || internalTokFile.lengthSync() < 102400
+        || internalTokFile.lengthSync() != externalSize;
+    if (needsCopy) {
+      log.info('[ExecuTorch] Copying tokenizer to internal storage: $internalTokPath');
+      final copyError = await et.copyTokenizer(tokenizerPath, internalTokPath);
+      if (copyError == 'PERMISSION_REQUIRED') {
+        log.error('[ExecuTorch] All files access not granted — opening Settings');
+        await et.openAllFilesSettings();
+        return 'ERROR: Grant "All files access" to PrivateLM in Settings, then try loading the model again.';
+      } else if (copyError != null) {
+        log.error('[ExecuTorch] Tokenizer copy failed: $copyError');
+        return 'ERROR: Could not copy tokenizer: $copyError';
       }
-      effectiveTokenizerPath = internalTokPath;
+      final copiedSize = File(internalTokPath).lengthSync();
+      log.info('[ExecuTorch] Tokenizer copied — ${(copiedSize / 1024 / 1024).toStringAsFixed(1)} MB');
+    } else {
+      log.info('[ExecuTorch] Using cached tokenizer (${(internalTokFile.lengthSync() / 1024 / 1024).toStringAsFixed(1)} MB) at $internalTokPath');
     }
+    final effectiveTokenizerPath = internalTokPath;
     log.info('[ExecuTorch] LlmModule paths — model: $modelPath  tokenizer: $effectiveTokenizerPath');
 
     isLoadingModel.value = true;

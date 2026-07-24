@@ -102,6 +102,13 @@ class ExecuTorchService extends GetxService {
   /// Copies [src] (external storage path) to [dst] (internal path) via Kotlin.
   /// Returns null on success, 'PERMISSION_REQUIRED' if All Files Access is needed,
   /// or another error string on failure.
+  /// Returns the app-internal directory for ExecuTorch model files (filesDir/et_models).
+  /// C++ can always open paths here regardless of external storage permissions.
+  Future<String> getEtModelsDir() async {
+    if (!Platform.isAndroid) return '/tmp';
+    return await _channel.invokeMethod<String>('getEtModelsDir') ?? '';
+  }
+
   Future<String?> copyTokenizer(String src, String dst) async {
     if (!Platform.isAndroid) return null;
     try {

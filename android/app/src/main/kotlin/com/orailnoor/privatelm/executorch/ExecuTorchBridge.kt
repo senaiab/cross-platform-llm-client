@@ -82,19 +82,11 @@ object ExecuTorchBridge {
             // model weight data (wrong format) → AccessFailed. The tokenizer is now
             // copied to internal storage before this call, so C++ can find it.
             val mod = LlmModule(modelPath, tokenizerPath, temperature)
-            val rc = mod.load()
-            if (rc != 0) {
-                val errorName = execuTorchErrorName(rc)
-                val msg = "LlmModule.load() rc=$rc ($errorName) tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded"
-                Log.e("ExecuTorch", msg)
-                if (!qnnBackendLoaded) Log.e("ExecuTorch", "QNN backend missing: $qnnBackendError")
-                module = null
-                msg
-            } else {
-                module = mod
-                Log.i("ExecuTorch", "load() success")
-                null
-            }
+            // In executorch-android 1.3.1 load() returns Unit; throws on failure.
+            mod.load()
+            module = mod
+            Log.i("ExecuTorch", "load() success tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded")
+            null
         } catch (t: Throwable) {
             val msg = "LlmModule threw ${t.javaClass.simpleName}: ${t.message}"
             Log.e("ExecuTorch", msg)
@@ -108,7 +100,6 @@ object ExecuTorchBridge {
         var tps = 0f
         mod.generate(prompt, maxTokens, object : LlmCallback {
             override fun onResult(token: String) { onToken(token) }
-            override fun onStats(tokensPerSecond: Float) { tps = tokensPerSecond }
         })
         return tps
     }
@@ -122,23 +113,4 @@ object ExecuTorchBridge {
 
     val isLoaded: Boolean get() = module != null
 
-    private fun execuTorchErrorName(rc: Int): String = when (rc) {
-        0x00 -> "Ok"
-        0x01 -> "Internal"
-        0x02 -> "InvalidState"
-        0x03 -> "EndOfMethod"
-        0x10 -> "NotSupported"
-        0x11 -> "NotImplemented"
-        0x12 -> "InvalidArgument"
-        0x13 -> "InvalidType"
-        0x14 -> "OperatorMissing"
-        0x20 -> "NotFound"
-        0x21 -> "MemoryAllocationFailed"
-        0x22 -> "AccessFailed"
-        0x23 -> "InvalidProgram"
-        0x2C -> "DelegateInvalidCompatibility"
-        0x2D -> "DelegateMemoryAllocationFailed"
-        0x2E -> "DelegateInvalidHandle"
-        else -> "Unknown(0x${rc.toString(16)})"
-    }
 }

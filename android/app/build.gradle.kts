@@ -57,10 +57,7 @@ android {
                 "lib/x86_64/libc++_shared.so",
                 "lib/x86/libc++_shared.so",
                 "lib/armeabi-v7a/libc++_shared.so",
-                // QNN AAR provides the 1.3.1-compatible libqnn_executorch_backend.so;
-                // our jniLibs copy is from 0.6.0 era — AAR version must win.
-                "lib/arm64-v8a/libqnn_executorch_backend.so",
-            )
+                )
         }
     }
 

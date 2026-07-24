@@ -91,7 +91,9 @@ object ExecuTorchBridge {
             Log.i("ExecuTorch", "load() success tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded")
             null
         } catch (t: Throwable) {
-            val msg = "LlmModule threw ${t.javaClass.simpleName}: ${t.message}"
+            val errorCode = try { t.javaClass.getMethod("getErrorCode").invoke(t) as? Int ?: -1 } catch (_: Exception) { -1 }
+            val detail = try { t.javaClass.getMethod("getDetailedError").invoke(t)?.toString() ?: "" } catch (_: Exception) { "" }
+            val msg = "LlmModule threw ${t.javaClass.simpleName}: rc=$errorCode ${t.message} $detail tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded"
             Log.e("ExecuTorch", msg)
             module = null
             msg

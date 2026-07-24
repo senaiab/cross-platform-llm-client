@@ -57,6 +57,9 @@ android {
                 "lib/x86_64/libc++_shared.so",
                 "lib/x86/libc++_shared.so",
                 "lib/armeabi-v7a/libc++_shared.so",
+                // QNN AAR provides the 1.3.1-compatible libqnn_executorch_backend.so;
+                // our jniLibs copy is from 0.6.0 era — AAR version must win.
+                "lib/arm64-v8a/libqnn_executorch_backend.so",
             )
         }
     }
@@ -73,7 +76,11 @@ android {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
-    implementation("org.pytorch:executorch-android:0.6.0")
+    // QNN-enabled AAR: libexecutorch.so (JNI) links against libqnn_executorch_backend.so
+    // (runtime+QNN), sharing one registry — unlike the generic AAR which had separate registries.
+    implementation("org.pytorch:executorch-android-qnn:1.3.1")
+    // fbjni is required by libexecutorch.so from the QNN AAR
+    implementation("com.facebook.fbjni:fbjni:0.5.0")
 }
 
 flutter {

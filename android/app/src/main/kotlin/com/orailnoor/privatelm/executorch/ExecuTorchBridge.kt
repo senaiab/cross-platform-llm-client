@@ -14,19 +14,11 @@ object ExecuTorchBridge {
         private set
 
     init {
-        // Load libexecutorch.so FIRST so its register_backend() symbol is in the
-        // global namespace before libqnn_executorch_backend.so's static initializer
-        // runs. Both .so files define register_backend; loading libexecutorch first
-        // lets libqnn_executorch_backend's PLT call resolve to libexecutorch's copy,
-        // so the QNN backend lands in the registry that LlmModule.load() queries.
-        try {
-            System.loadLibrary("executorch")
-            Log.i("ExecuTorch", "libexecutorch loaded")
-        } catch (e: UnsatisfiedLinkError) {
-            Log.w("ExecuTorch", "libexecutorch not pre-loaded: ${e.message?.take(120)}")
-        }
-        // Preload QNN system libraries so the backend's internal dlopen() calls
-        // can find them via RTLD_DEFAULT instead of failing on vendor paths.
+        // With executorch-android-qnn AAR, libexecutorch.so (JNI bridge) links against
+        // libqnn_executorch_backend.so (runtime+QNN), so the Android linker loads
+        // libqnn_executorch_backend.so automatically as a dependency — no explicit load needed.
+        // Preload QNN vendor libs first so the backend's dlopen() calls find them
+        // via RTLD_DEFAULT rather than failing on vendor paths.
         for (lib in listOf("QnnSystem", "QnnHtp", "QnnHtpNetRunExtensions", "QnnHtpPrepare")) {
             try {
                 System.loadLibrary(lib)
@@ -93,17 +85,11 @@ object ExecuTorchBridge {
             // model weight data (wrong format) → AccessFailed. The tokenizer is now
             // copied to internal storage (filesDir/et_models/) before this call.
             val mod = LlmModule(modelPath, tokenizerPath, temperature)
-            val rc = mod.load()
-            if (rc != 0) {
-                val msg = "LlmModule.load() rc=$rc tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded"
-                Log.e("ExecuTorch", msg)
-                module = null
-                msg
-            } else {
-                module = mod
-                Log.i("ExecuTorch", "load() success tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded")
-                null
-            }
+            // executorch-android-qnn 1.3.1: load() returns Unit, throws on failure.
+            mod.load()
+            module = mod
+            Log.i("ExecuTorch", "load() success tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded")
+            null
         } catch (t: Throwable) {
             val msg = "LlmModule threw ${t.javaClass.simpleName}: ${t.message}"
             Log.e("ExecuTorch", msg)
@@ -117,7 +103,6 @@ object ExecuTorchBridge {
         var tps = 0f
         mod.generate(prompt, maxTokens, object : LlmCallback {
             override fun onResult(token: String) { onToken(token) }
-            override fun onStats(tokensPerSecond: Float) { tps = tokensPerSecond }
         })
         return tps
     }

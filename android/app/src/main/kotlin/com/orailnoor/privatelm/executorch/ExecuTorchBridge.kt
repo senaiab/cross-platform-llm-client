@@ -14,6 +14,17 @@ object ExecuTorchBridge {
         private set
 
     init {
+        // Load libexecutorch.so FIRST so its register_backend() symbol is in the
+        // global namespace before libqnn_executorch_backend.so's static initializer
+        // runs. Both .so files define register_backend; loading libexecutorch first
+        // lets libqnn_executorch_backend's PLT call resolve to libexecutorch's copy,
+        // so the QNN backend lands in the registry that LlmModule.load() queries.
+        try {
+            System.loadLibrary("executorch")
+            Log.i("ExecuTorch", "libexecutorch loaded")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.w("ExecuTorch", "libexecutorch not pre-loaded: ${e.message?.take(120)}")
+        }
         // Preload QNN system libraries so the backend's internal dlopen() calls
         // can find them via RTLD_DEFAULT instead of failing on vendor paths.
         for (lib in listOf("QnnSystem", "QnnHtp", "QnnHtpNetRunExtensions", "QnnHtpPrepare")) {

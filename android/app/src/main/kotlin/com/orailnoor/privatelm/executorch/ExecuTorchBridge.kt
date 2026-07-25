@@ -93,7 +93,8 @@ object ExecuTorchBridge {
         } catch (t: Throwable) {
             val errorCode = try { t.javaClass.getMethod("getErrorCode").invoke(t) as? Int ?: -1 } catch (_: Exception) { -1 }
             val detail = try { t.javaClass.getMethod("getDetailedError").invoke(t)?.toString() ?: "" } catch (_: Exception) { "" }
-            val msg = "LlmModule threw ${t.javaClass.simpleName}: rc=$errorCode ${t.message} $detail tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded"
+            val nativeLog = captureNativeLog()
+            val msg = "LlmModule threw ${t.javaClass.simpleName}: rc=$errorCode ${t.message} $detail tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded\n--- native log ---\n$nativeLog"
             Log.e("ExecuTorch", msg)
             module = null
             msg
@@ -117,5 +118,12 @@ object ExecuTorchBridge {
     }
 
     val isLoaded: Boolean get() = module != null
+
+    private fun captureNativeLog(): String = try {
+        val proc = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "80",
+            "-s", "ExecuTorch:V", "libqnn_executorch_backend:V", "QnnBackend:V",
+            "QnnHtp:V", "QnnDsp:V", "qnn:V", "executorch:V"))
+        proc.inputStream.bufferedReader().readText().takeLast(3000)
+    } catch (e: Exception) { "logcat capture failed: ${e.message}" }
 
 }

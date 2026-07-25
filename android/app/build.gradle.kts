@@ -57,7 +57,9 @@ android {
                 "lib/x86_64/libc++_shared.so",
                 "lib/x86/libc++_shared.so",
                 "lib/armeabi-v7a/libc++_shared.so",
-                )
+                // Use model-matched 684KB backend (packaged with v79 PTE) over AAR's version
+                "lib/arm64-v8a/libqnn_executorch_backend.so",
+            )
         }
     }
 

@@ -85,16 +85,21 @@ object ExecuTorchBridge {
             // model weight data (wrong format) → AccessFailed. The tokenizer is now
             // copied to internal storage (filesDir/et_models/) before this call.
             val mod = LlmModule(modelPath, tokenizerPath, temperature)
-            // executorch-android-qnn 1.3.1: load() returns Unit, throws on failure.
-            mod.load()
+            // executorch-android-qnn 1.2.0: load() returns int rc (0 = success).
+            val rc = mod.load()
+            if (rc != 0) {
+                val nativeLog = captureNativeLog()
+                val msg = "LlmModule.load() rc=$rc tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded\n--- native log ---\n$nativeLog"
+                Log.e("ExecuTorch", msg)
+                module = null
+                return msg
+            }
             module = mod
             Log.i("ExecuTorch", "load() success tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded")
             null
         } catch (t: Throwable) {
-            val errorCode = try { t.javaClass.getMethod("getErrorCode").invoke(t) as? Int ?: -1 } catch (_: Exception) { -1 }
-            val detail = try { t.javaClass.getMethod("getDetailedError").invoke(t)?.toString() ?: "" } catch (_: Exception) { "" }
             val nativeLog = captureNativeLog()
-            val msg = "LlmModule threw ${t.javaClass.simpleName}: rc=$errorCode ${t.message} $detail tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded\n--- native log ---\n$nativeLog"
+            val msg = "LlmModule threw ${t.javaClass.simpleName}: ${t.message} tokHdr=$tokHeader pte=${pteFile.length()}B tok=${tokFile.length()}B qnn=$qnnBackendLoaded\n--- native log ---\n$nativeLog"
             Log.e("ExecuTorch", msg)
             module = null
             msg

@@ -75,7 +75,7 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
     // QNN-enabled AAR: libexecutorch.so (JNI) links against libqnn_executorch_backend.so
     // (runtime+QNN), sharing one registry — unlike the generic AAR which had separate registries.
-    implementation("org.pytorch:executorch-android-qnn:1.3.1")
+    implementation("org.pytorch:executorch-android-qnn:1.2.0")
     // fbjni is required by libexecutorch.so from the QNN AAR
     implementation("com.facebook.fbjni:fbjni:0.5.0")
 }

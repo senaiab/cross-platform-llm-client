@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - feature/tool-calling-agent
+      - feature/opendroid-fusion
 
 jobs:
   build:

@@ -20,6 +20,10 @@
     <uses-permission android:name="android.permission.READ_CONTACTS"/>
     <!-- Termux bridge: allows sending commands to Termux via RUN_COMMAND intent -->
     <uses-permission android:name="com.termux.permission.RUN_COMMAND"/>
+    <!-- Phone automation permissions -->
+    <uses-permission android:name="android.permission.SEND_SMS"/>
+    <uses-permission android:name="android.permission.CALL_PHONE"/>
+    <uses-permission android:name="android.permission.READ_SMS"/>
 
     <application
         android:label="PrivateLM"
@@ -64,6 +68,47 @@
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!-- OpenDroid Accessibility Service -->
+        <service
+            android:name=".opendroid.accessibility.OpenDroidAccessibilityService"
+            android:exported="true"
+            android:label="PrivateLM Assistant"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config"/>
+        </service>
+
+        <!-- OpenDroid Notification Listener -->
+        <service
+            android:name=".opendroid.core.service.OpenDroidNotificationListener"
+            android:exported="true"
+            android:label="PrivateLM Notification Listener"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService"/>
+            </intent-filter>
+        </service>
+
+        <!-- OpenDroid foreground service -->
+        <service
+            android:name=".opendroid.core.service.OpenDroidService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"/>
+
+        <!-- OpenDroid Boot Receiver -->
+        <receiver
+            android:name=".opendroid.core.service.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
             </intent-filter>
         </receiver>
 

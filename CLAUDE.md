@@ -3,23 +3,61 @@
 This repo is the forked PrivateLM build at:
 
 - Local path: `/data/data/com.termux/files/home/PrivateLM-toolcalling`
-- Branch: `feature/tool-calling-agent`
+- Branch: `feature/opendroid-fusion` (current active branch)
 - Fork remote: `https://github.com/senaiab/cross-platform-llm-client.git`
 - Upstream/tracking branch: `fork/feature/tool-calling-agent`
 
 ## Current Completed Work
 
-The current source state has been committed and pushed through commit:
+The current source state on `feature/opendroid-fusion` includes full OpenDroid phone automation integration (see OpenDroid Integration section below).
 
-- `d8c145b Add copy action to chat messages`
+Last committed baseline (before opendroid work):
 
-Recent relevant commits:
+- `dda4bb4 Add LiteRT v79 Qualcomm NPU dispatcher for HTP acceleration`
 
+Previous relevant commits:
+
+- `40bf0a4 Add NPU backend for LiteRT-LM on Snapdragon/MediaTek devices`
+- `9a1fb5c Replace Firebase with local crash reporter; fix tool follow-up history`
+- `7508412 Add Termux RUN_COMMAND permission to enable shell bridge`
+- `1f429f9 Fix GetX improper-use error in LogView filter chip Obx`
 - `d8c145b Add copy action to chat messages`
 - `8aa4971 Use stable release signing for Android builds`
 - `fb41501 Retry transient cloud API disconnects`
 - `5be1575 Implement XLSX tool handling`
-- `c2df448 Implement weather and location tools`
+
+## OpenDroid Integration
+
+Ported OpenDroid phone automation into PrivateLM as a Hilt-free embedded module:
+
+**Package**: `com.orailnoor.privatelm.opendroid` (repackaged from `com.opendroid.ai`)
+
+**New files added under `android/app/src/main/kotlin/com/orailnoor/privatelm/opendroid/`**:
+
+- `accessibility/`: OpenDroidAccessibilityService.kt (Step 3 mods: no agentLoop/DI, string states for FloatingWidgetView, openMainActivityAction targets PrivateLM), SmsAutomator.kt (added direct `sendSms(context, to, message)`), CallAutomator.kt (added direct `makeCall(context, to)`), WhatsAppAutomator.kt, GenericAppAutomator.kt
+- `core/service/`: OpenDroidService.kt (minimal foreground service skeleton), OpenDroidNotificationListener.kt (Hilt stripped, autoReplyEngine removed), BootReceiver.kt
+- `core/memory/`: WorkingMemory.kt (simplified, no ChatMessage/Plan/DeviceStateProvider), NotificationIntelligence.kt (simplified, uses only DAO methods present in PrivateLM's NotificationDao, patterns stored in-memory), EpisodicMemory.kt, SemanticMemory.kt, ProceduralMemory.kt, MemoryExtractor.kt (stubs)
+- `actions/`: ActionDispatcher.kt (Hilt stripped), AdvancedControlActions.kt (Hilt stripped, all 23 inner action classes intact)
+
+**New root-package file**: `PhoneActionBridge.kt` — Flutter MethodChannel `com.orailnoor.privatelm/phone_actions` exposing `sendSms` and `makeCall`. Uses `applicationContext` (not Activity) to avoid context leak. Results dispatched to main thread via `withContext(Dispatchers.Main)`.
+
+**Modified**:
+- `MainActivity.kt`: Added `PhoneActionBridge(applicationContext, flutterEngine)` at end of `configureFlutterEngine`
+- `AndroidManifest.xml`: Added SEND_SMS, CALL_PHONE, READ_SMS permissions; registered OpenDroidAccessibilityService, OpenDroidNotificationListener, OpenDroidService (foreground/dataSync), BootReceiver (.opendroid.core.service.BootReceiver)
+- `build.gradle.kts`: Added serialization plugin (2.2.20), KSP plugin (2.2.20-2.0.4), Room 2.7.2, DataStore 1.1.4, Coroutines 1.10.2, WorkManager 2.10.1, Serialization JSON 1.8.1
+- `settings.gradle.kts`: Added `id("com.google.devtools.ksp") version "2.2.20-2.0.4" apply false`
+
+**New resources**:
+- `res/xml/accessibility_service_config.xml`
+- `res/values/strings.xml` (accessibility_service_description)
+- `res/drawable/bot.xml` (vector placeholder for floating widget icon)
+
+**Hilt stripping rules applied throughout**:
+- `@AndroidEntryPoint`, `@HiltAndroidApp`, `@Singleton` (class-level), `@Module`, `@InstallIn`, `@Provides`, `@HiltViewModel` → removed entirely
+- `@Inject constructor()` → plain constructor
+- `@Inject lateinit var` → not used (classes instantiated manually)
+
+**NOT copied** (intentionally excluded): AgentLoop.kt, IntentClassifier.kt, AutoReplyEngine, di/ directory, all UI/ViewModel/Compose files
 
 ## Implemented Features
 
@@ -37,6 +75,9 @@ Recent relevant commits:
   - Adds request timeouts.
   - Falls back from streaming to non-streaming when needed.
   - Returns partial streamed text if a connection closes after tokens were received.
+- LogView filter chip GetX Obx crash fixed:
+  - The filter chip Obx in `lib/views/log_view.dart` threw "improper use of GetX" because `selectedFilter.value` was only read inside a lazy `itemBuilder` callback (zero synchronous subscriptions).
+  - Fix: capture `selectedFilter.value` as a local variable at the top of the Obx builder body.
 
 ## Android Package And Updates
 
@@ -75,19 +116,18 @@ Do not commit the keystore or credentials.
 
 Latest successful build:
 
-- Commit: `d8c145b6e3affd3a55ff9a26591a7451b86c5e50`
-- GitHub Actions run: `https://github.com/senaiab/cross-platform-llm-client/actions/runs/28465189557`
+- Commit: `62c0ca6` (Add PTE pre-flight checks; pass modelDir as dataDir for external constants)
+- GitHub Actions run: `https://github.com/senaiab/cross-platform-llm-client/actions/runs/30028505122`
 - Artifact: `privatelm-tool-calling-arm64-apk`
 
 APK copied to:
 
 - `/storage/emulated/0/Download/privatelm-tool-calling-arm64-release.apk`
-- `/data/data/com.termux/files/home/privatelm-tool-calling-arm64-release.apk`
+- `/data/data/com.termux/files/home/PrivateLM-toolcalling/app-arm64-v8a-release.apk`
 
 APK details:
 
-- Size: `94,557,520` bytes
-- SHA-256: `c2d6a7c9ef1caec57ba1180e7bba947539ddb3a67a62f69d900f0650526816e6`
+- Size: `120 MB` (includes ExecuTorch QNN native libs for Fold 7 NPU)
 - Verified Android APK v2 signature: true
 - Signing cert SHA-256: `1ed126bd75e101e5a739f3e044d677159850eae5960848279de8a34a27adef61`
 

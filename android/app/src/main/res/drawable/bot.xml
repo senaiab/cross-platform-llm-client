@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Placeholder bot icon for the OpenDroid floating widget -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="64dp"
+    android:height="64dp"
+    android:viewportWidth="64"
+    android:viewportHeight="64">
+    <!-- Head circle -->
+    <path
+        android:fillColor="#00FF66"
+        android:pathData="M32,8 C20,8 10,18 10,30 C10,42 20,52 32,52 C44,52 54,42 54,30 C54,18 44,8 32,8 Z"/>
+    <!-- Eyes -->
+    <path
+        android:fillColor="#121216"
+        android:pathData="M22,26 C22,24 24,22 26,22 C28,22 30,24 30,26 C30,28 28,30 26,30 C24,30 22,28 22,26 Z"/>
+    <path
+        android:fillColor="#121216"
+        android:pathData="M34,26 C34,24 36,22 38,22 C40,22 42,24 42,26 C42,28 40,30 38,30 C36,30 34,28 34,26 Z"/>
+    <!-- Mouth -->
+    <path
+        android:fillColor="#121216"
+        android:pathData="M22,38 Q32,44 42,38"
+        android:strokeColor="#121216"
+        android:strokeWidth="2"/>
+    <!-- Antenna -->
+    <path
+        android:fillColor="#00FF66"
+        android:pathData="M30,8 L30,2 L34,2 L34,8 Z"/>
+    <path
+        android:fillColor="#00FF66"
+        android:pathData="M32,2 C32,0 36,0 36,2 C36,4 32,4 32,2 Z"/>
+</vector>

@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">PrivateLM uses accessibility services to automate phone actions such as sending messages, making calls, and interacting with apps on your behalf.</string>
+</resources>

@@ -199,6 +199,7 @@ class MainActivity : FlutterActivity() {
         }
         setupTermuxBridge(flutterEngine)
         setupExecuTorchBridge(flutterEngine)
+        PhoneActionBridge(applicationContext, flutterEngine)
     }
 
     private fun setupExecuTorchBridge(flutterEngine: FlutterEngine) {

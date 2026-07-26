@@ -1,6 +1,8 @@
 plugins {
     id("com.android.application")
     id("kotlin-android")
+    id("org.jetbrains.kotlin.plugin.serialization") version "2.2.20"
+    id("com.google.devtools.ksp") version "2.2.20-2.0.4"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
@@ -80,6 +82,23 @@ dependencies {
     implementation("org.pytorch:executorch-android-qnn:1.2.0")
     // fbjni is required by libexecutorch.so from the QNN AAR
     implementation("com.facebook.fbjni:fbjni:0.5.0")
+
+    // Room database
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
+
+    // DataStore
+    implementation("androidx.datastore:datastore-preferences:1.1.4")
+
+    // Coroutines
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // WorkManager
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
+
+    // Kotlin Serialization JSON
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 }
 
 flutter {

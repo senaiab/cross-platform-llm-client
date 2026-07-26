@@ -39,6 +39,8 @@ class DeviceStateProvider(private val context: Context) {
         return caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
     }
 
+    fun isInternetAvailable(): Boolean = isWifiConnected() || isMobileDataConnected()
+
     fun getAvailableStorageBytes(): Long {
         val stat = StatFs(Environment.getExternalStorageDirectory().path)
         return stat.availableBlocksLong * stat.blockSizeLong

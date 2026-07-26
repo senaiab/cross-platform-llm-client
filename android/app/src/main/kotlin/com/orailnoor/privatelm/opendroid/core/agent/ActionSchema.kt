@@ -508,6 +508,54 @@ object ActionSchema {
         return result
     }
 
+    fun validateParams(
+        actionName: String,
+        params: Map<String, Any>
+    ): Pair<ValidationResult, Map<String, Any>> {
+        val definition = getAction(actionName)
+            ?: return Pair(ValidationResult.InvalidAction(actionName), params)
+
+        val enrichedParams = params.toMutableMap()
+        val missingRequired = mutableListOf<String>()
+
+        definition.params.forEach { paramDef ->
+            val value = enrichedParams[paramDef.name]
+            when {
+                value != null -> {
+                    if (paramDef.type == ParamType.ENUM && paramDef.enumValues.isNotEmpty()) {
+                        val strValue = value.toString().lowercase()
+                        val validValues = paramDef.enumValues.map { it.lowercase() }
+                        if (!validValues.contains(strValue)) {
+                            val fixed = fixEnumValue(strValue, paramDef.enumValues)
+                            if (fixed != null) enrichedParams[paramDef.name] = fixed
+                            else missingRequired.add(paramDef.name)
+                        }
+                    }
+                }
+                paramDef.defaultValue != null -> enrichedParams[paramDef.name] = paramDef.defaultValue
+                paramDef.required -> missingRequired.add(paramDef.name)
+                else -> {}
+            }
+        }
+
+        return if (missingRequired.isEmpty()) {
+            Pair(ValidationResult.Valid, enrichedParams)
+        } else {
+            Pair(ValidationResult.MissingParams(missingRequired), enrichedParams)
+        }
+    }
+
+    private fun fixEnumValue(input: String, validValues: List<String>): String? {
+        validValues.find { it.lowercase() == input.lowercase() }?.let { return it }
+        val synonyms = mapOf(
+            "yes" to "on", "enable" to "on", "activate" to "on", "true" to "on", "start" to "on",
+            "no" to "off", "disable" to "off", "deactivate" to "off", "false" to "off", "stop" to "off",
+            "switch" to "toggle", "flip" to "toggle", "change" to "toggle"
+        )
+        val synonym = synonyms[input.lowercase()]
+        return validValues.find { it.lowercase() == synonym?.lowercase() }
+    }
+
     sealed class ValidationResult {
         object Valid : ValidationResult()
         data class InvalidAction(val name: String) : ValidationResult()

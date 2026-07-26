@@ -216,7 +216,7 @@ class ActionDispatcher(
         return when (validation) {
             is ActionSchema.ValidationResult.Valid -> {
                 val handler = actionsMap[actionName] ?: return null
-                val stringParams = enrichedParams.mapValues { it.value.toString() }
+                val stringParams: Map<String, String> = enrichedParams.mapValues { it.value.toString() }
                 safeExecute(handler, stringParams, context, actionName)
             }
 
@@ -229,7 +229,7 @@ class ActionDispatcher(
                 if (allHaveDefaults) {
                     val handler = actionsMap[actionName] ?: return null
                     val withDefaults = ActionSchema.applyDefaults(actionName, params)
-                    val stringParams = withDefaults.mapValues { it.value.toString() }
+                    val stringParams: Map<String, String> = withDefaults.mapValues { it.value.toString() }
                     safeExecute(handler, stringParams, context, actionName)
                 } else {
                     val firstMissing = validation.params.first()
@@ -244,6 +244,7 @@ class ActionDispatcher(
             }
 
             is ActionSchema.ValidationResult.InvalidAction -> null
+            else -> null
         }
     }
 

@@ -27,6 +27,7 @@ import 'services/rag_service.dart';
 import 'services/app_log_service.dart';
 import 'services/crash_reporting_service.dart';
 import 'services/image_generation_notification_service.dart';
+import 'services/phone_action_service.dart';
 import 'core/constants.dart';
 
 void main() {
@@ -68,6 +69,7 @@ void main() {
 
       Get.put(InferenceService());
       await Get.putAsync(() => ExecuTorchService().init());
+      await Get.putAsync(() => PhoneActionService().init());
       Get.put(CloudService());
       Get.put(McpService());
       await Get.putAsync(() => RagService().init());

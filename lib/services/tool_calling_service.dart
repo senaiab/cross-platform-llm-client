@@ -27,6 +27,7 @@ import 'document_extractor_service.dart';
 import 'hive_service.dart';
 import 'mcp_service.dart';
 import 'rag_service.dart';
+import 'phone_action_service.dart';
 
 enum ToolCallingMode { plan, build, agent, subagent }
 
@@ -386,6 +387,17 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
   }
 
   void _registerTools() {
+    // Phone automation (OpenDroid accessibility bridge)
+    _register('send_whatsapp', ToolRisk.external, _sendWhatsApp);
+    _register('send_sms', ToolRisk.external, _sendSms);
+    _register('make_call', ToolRisk.external, _makeCall);
+    _register('get_screen_text', ToolRisk.readOnly, (_) async => _getScreenText());
+    _register('click_on_screen', ToolRisk.external, _clickOnScreen);
+    _register('find_and_click', ToolRisk.external, _findAndClick);
+    _register('find_and_type', ToolRisk.external, _findAndType);
+    _register('take_screenshot', ToolRisk.readOnly, (_) async => _takeScreenshot());
+    _register('open_app', ToolRisk.external, _openApp);
+    _register('check_accessibility', ToolRisk.readOnly, (_) async => _checkAccessibility());
     _register('app_info', ToolRisk.readOnly, _appInfo);
     _register('device_info', ToolRisk.readOnly, (_) async => _deviceInfo());
     _register(
@@ -503,6 +515,89 @@ Prefer tool calls for current file, device, web, calculation, data, git, or syst
       handler: handler,
     );
   }
+
+  // ── Phone Automation (OpenDroid bridge) ────────────────────────────
+
+  PhoneActionService? get _phone =>
+      Get.isRegistered<PhoneActionService>() ? Get.find<PhoneActionService>() : null;
+
+  Future<Map<String, dynamic>> _checkAccessibility() async {
+    final svc = _phone;
+    if (svc == null) return {'enabled': false, 'error': 'PhoneActionService not initialized'};
+    await svc.refreshAccessibilityStatus();
+    return {
+      'enabled': svc.isAccessibilityEnabled.value,
+      'message': svc.isAccessibilityEnabled.value
+          ? 'Accessibility service is active'
+          : 'Go to Settings → Accessibility → PrivateLM Agent and enable it',
+    };
+  }
+
+  Future<Map<String, dynamic>> _sendWhatsApp(Map<String, dynamic> p) async {
+    final contact = p['contact']?.toString() ?? '';
+    final message = p['message']?.toString() ?? '';
+    if (contact.isEmpty || message.isEmpty) {
+      return {'error': 'contact and message are required'};
+    }
+    final err = await _phone?.sendWhatsApp(contact, message);
+    return err == null ? {'success': true} : {'error': err};
+  }
+
+  Future<Map<String, dynamic>> _sendSms(Map<String, dynamic> p) async {
+    final to = p['to']?.toString() ?? '';
+    final message = p['message']?.toString() ?? '';
+    if (to.isEmpty || message.isEmpty) return {'error': 'to and message are required'};
+    final err = await _phone?.sendSms(to, message);
+    return err == null ? {'success': true} : {'error': err};
+  }
+
+  Future<Map<String, dynamic>> _makeCall(Map<String, dynamic> p) async {
+    final to = p['to']?.toString() ?? '';
+    if (to.isEmpty) return {'error': 'to is required'};
+    final err = await _phone?.makeCall(to);
+    return err == null ? {'success': true} : {'error': err};
+  }
+
+  Future<Map<String, dynamic>> _getScreenText() async {
+    final text = await _phone?.getScreenText() ?? 'PhoneActionService not available';
+    return {'text': text};
+  }
+
+  Future<Map<String, dynamic>> _clickOnScreen(Map<String, dynamic> p) async {
+    final x = (p['x'] as num?)?.toDouble() ?? 0.0;
+    final y = (p['y'] as num?)?.toDouble() ?? 0.0;
+    final ok = await _phone?.clickOnScreen(x, y) ?? false;
+    return {'success': ok};
+  }
+
+  Future<Map<String, dynamic>> _findAndClick(Map<String, dynamic> p) async {
+    final text = p['text']?.toString() ?? '';
+    if (text.isEmpty) return {'error': 'text is required'};
+    final ok = await _phone?.findAndClick(text) ?? false;
+    return {'success': ok};
+  }
+
+  Future<Map<String, dynamic>> _findAndType(Map<String, dynamic> p) async {
+    final label = p['label']?.toString() ?? '';
+    final content = p['content']?.toString() ?? '';
+    if (label.isEmpty || content.isEmpty) return {'error': 'label and content are required'};
+    final ok = await _phone?.findAndType(label, content) ?? false;
+    return {'success': ok};
+  }
+
+  Future<Map<String, dynamic>> _takeScreenshot() async {
+    final b64 = await _phone?.takeScreenshot();
+    return b64 != null ? {'screenshot_base64': b64} : {'error': 'Screenshot failed or accessibility not enabled'};
+  }
+
+  Future<Map<String, dynamic>> _openApp(Map<String, dynamic> p) async {
+    final pkg = p['package_name']?.toString() ?? '';
+    if (pkg.isEmpty) return {'error': 'package_name is required'};
+    final err = await _phone?.openApp(pkg);
+    return err == null ? {'success': true} : {'error': err};
+  }
+
+  // ── End Phone Automation ────────────────────────────────────────────
 
   Future<Map<String, dynamic>> _appInfo(Map<String, dynamic> _) async {
     final info = await PackageInfo.fromPlatform();

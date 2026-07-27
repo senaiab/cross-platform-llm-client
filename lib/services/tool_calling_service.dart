@@ -93,6 +93,17 @@ class ToolCallingService extends GetxService {
     'rag_list_sources',
     'rag_status',
     'spawn_agent',
+    // Phone automation (OpenDroid accessibility bridge)
+    'check_accessibility',
+    'send_whatsapp',
+    'send_sms',
+    'make_call',
+    'get_screen_text',
+    'click_on_screen',
+    'find_and_click',
+    'find_and_type',
+    'take_screenshot',
+    'open_app',
   ];
 
   static const List<String> allToolNames = [
@@ -194,6 +205,17 @@ class ToolCallingService extends GetxService {
     'rag_status',
     'rag_clear',
     'spawn_agent',
+    // Phone automation (OpenDroid accessibility bridge)
+    'check_accessibility',
+    'send_whatsapp',
+    'send_sms',
+    'make_call',
+    'get_screen_text',
+    'click_on_screen',
+    'find_and_click',
+    'find_and_type',
+    'take_screenshot',
+    'open_app',
   ];
 
   static const String planningPrompt = '''
@@ -234,7 +256,20 @@ Advertised core tools:
 ${advertisedCoreTools.join(', ')}
 
 Other registered tools are available by exact name but are not listed here to keep context short.
-Prefer tool calls for current file, device, web, calculation, data, git, or system facts. Do not invent tool results.''';
+Prefer tool calls for current file, device, web, calculation, data, git, or system facts. Do not invent tool results.
+
+Phone automation tools (require accessibility permission):
+- check_accessibility: check if accessibility service is enabled
+- get_screen_text: read all visible text on the current screen
+- take_screenshot: capture the current screen as base64 image
+- send_whatsapp {"contact":"...","message":"..."}: send WhatsApp message
+- send_sms {"to":"...","message":"..."}: send SMS
+- make_call {"to":"..."}: make a phone call
+- open_app {"package_name":"..."}: launch an app by package name
+- find_and_click {"text":"..."}: tap a UI element by visible text
+- find_and_type {"label":"...","content":"..."}: type into a field
+- click_on_screen {"x":0,"y":0}: tap at screen coordinates
+Always use get_screen_text or take_screenshot when the user asks what is on their screen.''';
 
   static const _termuxChannel = MethodChannel('com.orailnoor.privatelm/termux_bridge');
 

@@ -56,6 +56,7 @@ class SettingsController extends GetxController {
   final fontScale = AppConstants.defaultFontScale.obs;
   final ttsEnabled = false.obs;
   final wakeWordEnabled = false.obs;
+  final ttsSpeed = 1.0.obs;
 
   // Persistent text controllers for settings fields
   final openaiKeyController = TextEditingController();
@@ -219,6 +220,8 @@ class SettingsController extends GetxController {
         _hive.getSetting('tts_enabled', defaultValue: false) ?? false;
     wakeWordEnabled.value =
         _hive.getSetting('wake_word_enabled', defaultValue: false) ?? false;
+    ttsSpeed.value =
+        _hive.getSetting('tts_speed', defaultValue: 1.0) ?? 1.0;
 
     // Sync controllers with loaded values
     openaiKeyController.text = openaiKey.value;
@@ -675,6 +678,15 @@ class SettingsController extends GetxController {
       } else {
         vs.stopWakeWord();
       }
+    }
+  }
+
+  void setTtsSpeed(double rate) {
+    final clamped = rate.clamp(0.5, 3.0);
+    ttsSpeed.value = clamped;
+    _hive.setSetting('tts_speed', clamped);
+    if (Get.isRegistered<VoiceService>()) {
+      Get.find<VoiceService>().setSpeed(clamped);
     }
   }
 

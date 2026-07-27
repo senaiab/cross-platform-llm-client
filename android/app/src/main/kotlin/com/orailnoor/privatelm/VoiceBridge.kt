@@ -33,6 +33,12 @@ object VoiceBridge {
                 ttsEngine?.stop()
                 result.success(null)
             }
+            "setSpeed" -> {
+                val rate = (call.argument<Double>("rate") ?: 1.0).toFloat()
+                if (ttsEngine == null) ttsEngine = TextToSpeechEngine(context)
+                ttsEngine?.setSpeechRate(rate)
+                result.success(null)
+            }
             "isSpeaking" -> {
                 result.success(false) // Android TTS doesn't expose this easily
             }

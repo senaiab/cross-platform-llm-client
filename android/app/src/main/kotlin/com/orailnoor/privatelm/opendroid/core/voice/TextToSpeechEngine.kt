@@ -41,6 +41,10 @@ class TextToSpeechEngine(private val context: Context) : TextToSpeech.OnInitList
         }
     }
 
+    fun setSpeechRate(rate: Float) {
+        tts?.setSpeechRate(rate.coerceIn(0.5f, 3.0f))
+    }
+
     fun speak(text: String) {
         if (isInitialized) {
             tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "privatelm_tts")

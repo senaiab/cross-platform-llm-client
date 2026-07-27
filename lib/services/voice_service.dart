@@ -12,6 +12,7 @@ class VoiceService extends GetxService {
   final wakeWordEnabled = false.obs;
   final isSpeaking = false.obs;
   final wakeWordActive = false.obs;
+  final ttsSpeed = 1.0.obs;
 
   /// Called when wake word is detected — set by chat controller
   void Function()? onWakeWordDetected;
@@ -50,6 +51,14 @@ class VoiceService extends GetxService {
     } finally {
       isSpeaking.value = false;
     }
+  }
+
+  Future<void> setSpeed(double rate) async {
+    if (!Platform.isAndroid) return;
+    ttsSpeed.value = rate;
+    try {
+      await _method.invokeMethod('setSpeed', {'rate': rate});
+    } catch (_) {}
   }
 
   Future<void> stop() async {

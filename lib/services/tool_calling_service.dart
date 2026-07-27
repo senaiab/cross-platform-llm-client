@@ -247,11 +247,6 @@ The app executes the tool and injects:
 
 Then continue answering, or call another tool if needed.
 
-Modes:
-- Plan mode: read-only tools only. Dangerous tools are blocked.
-- Build mode: all stable tools are available only when the user explicitly asks for Build mode; dangerous tools still return an approval-required result if UI approval is needed.
-- Agent mode: same as Build mode with a larger loop budget.
-
 Advertised core tools:
 ${advertisedCoreTools.join(', ')}
 

@@ -75,6 +75,10 @@ void main() {
       // Sync persisted voice settings into the VoiceService
       voiceService.ttsEnabled.value = settingsController.ttsEnabled.value;
       voiceService.wakeWordEnabled.value = settingsController.wakeWordEnabled.value;
+      voiceService.ttsSpeed.value = settingsController.ttsSpeed.value;
+      if (settingsController.ttsSpeed.value != 1.0) {
+        voiceService.setSpeed(settingsController.ttsSpeed.value);
+      }
       Get.put(CloudService());
       Get.put(McpService());
       await Get.putAsync(() => RagService().init());

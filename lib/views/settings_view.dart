@@ -181,6 +181,42 @@ class SettingsView extends GetView<SettingsController> {
                       contentPadding:
                           const EdgeInsets.symmetric(horizontal: 16),
                     )),
+                Divider(
+                    height: 0.5,
+                    indent: 16,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : Colors.black.withValues(alpha: 0.06)),
+                Obx(() => Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              const Text('Speech Speed',
+                                  style: TextStyle(fontSize: 16)),
+                              Text(
+                                '${controller.ttsSpeed.value.toStringAsFixed(1)}x',
+                                style: TextStyle(
+                                    fontSize: 14,
+                                    color: isDark
+                                        ? Colors.white70
+                                        : Colors.black54),
+                              ),
+                            ],
+                          ),
+                          Slider(
+                            value: controller.ttsSpeed.value,
+                            min: 0.5,
+                            max: 3.0,
+                            divisions: 25,
+                            onChanged: controller.setTtsSpeed,
+                          ),
+                        ],
+                      ),
+                    )),
               ]),
               const SizedBox(height: 24),
               _sectionLabel(context, 'ABOUT'),

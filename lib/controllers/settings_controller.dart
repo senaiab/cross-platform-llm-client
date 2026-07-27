@@ -9,6 +9,7 @@ import '../core/constants.dart';
 import '../services/hive_service.dart';
 import '../services/app_log_service.dart';
 import '../services/local_image_service.dart';
+import '../services/voice_service.dart';
 import '../ffi/sd_ffi_bindings.dart';
 import 'package:sd_flutter_android/sd_flutter_android.dart';
 
@@ -53,6 +54,8 @@ class SettingsController extends GetxController {
   final imageGenGpuGuardMb = AppConstants.defaultImageGenGpuGuardMb.obs;
   final imageGenSize = AppConstants.defaultImageGenSize.obs;
   final fontScale = AppConstants.defaultFontScale.obs;
+  final ttsEnabled = false.obs;
+  final wakeWordEnabled = false.obs;
 
   // Persistent text controllers for settings fields
   final openaiKeyController = TextEditingController();
@@ -212,6 +215,10 @@ class SettingsController extends GetxController {
     fontScale.value = _hive.getSetting(AppConstants.keyFontScale,
             defaultValue: AppConstants.defaultFontScale) ??
         AppConstants.defaultFontScale;
+    ttsEnabled.value =
+        _hive.getSetting('tts_enabled', defaultValue: false) ?? false;
+    wakeWordEnabled.value =
+        _hive.getSetting('wake_word_enabled', defaultValue: false) ?? false;
 
     // Sync controllers with loaded values
     openaiKeyController.text = openaiKey.value;
@@ -645,6 +652,30 @@ class SettingsController extends GetxController {
     final clamped = value.clamp(0.8, 1.4);
     fontScale.value = clamped;
     await _hive.setSetting(AppConstants.keyFontScale, clamped);
+  }
+
+  void setTtsEnabled(bool v) {
+    ttsEnabled.value = v;
+    _hive.setSetting('tts_enabled', v);
+    if (Get.isRegistered<VoiceService>()) {
+      final vs = Get.find<VoiceService>();
+      vs.ttsEnabled.value = v;
+      if (!v) vs.stop();
+    }
+  }
+
+  void setWakeWordEnabled(bool v) {
+    wakeWordEnabled.value = v;
+    _hive.setSetting('wake_word_enabled', v);
+    if (Get.isRegistered<VoiceService>()) {
+      final vs = Get.find<VoiceService>();
+      vs.wakeWordEnabled.value = v;
+      if (v) {
+        vs.startWakeWord();
+      } else {
+        vs.stopWakeWord();
+      }
+    }
   }
 
   Future<void> setThemeMode(ThemeMode mode) async {

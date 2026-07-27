@@ -155,6 +155,34 @@ class SettingsView extends GetView<SettingsController> {
               _sectionLabel(context, 'IMAGE GENERATION PARAMETERS'),
               _buildImageGenerationCard(context, isDark),
               const SizedBox(height: 24),
+              _sectionLabel(context, 'VOICE'),
+              _appleGroupedCard(context, isDark, children: [
+                Obx(() => SwitchListTile(
+                      title: const Text('Speak AI Responses'),
+                      subtitle: const Text(
+                          'Read responses aloud using text-to-speech'),
+                      value: controller.ttsEnabled.value,
+                      onChanged: controller.setTtsEnabled,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 16),
+                    )),
+                Divider(
+                    height: 0.5,
+                    indent: 16,
+                    color: isDark
+                        ? Colors.white.withValues(alpha: 0.06)
+                        : Colors.black.withValues(alpha: 0.06)),
+                Obx(() => SwitchListTile(
+                      title: const Text('Wake Word'),
+                      subtitle: const Text(
+                          'Say "PrivateLM" to activate the mic'),
+                      value: controller.wakeWordEnabled.value,
+                      onChanged: controller.setWakeWordEnabled,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 16),
+                    )),
+              ]),
+              const SizedBox(height: 24),
               _sectionLabel(context, 'ABOUT'),
               _appleGroupedCard(context, isDark, children: [
                 Padding(

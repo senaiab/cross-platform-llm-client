@@ -28,6 +28,7 @@ import 'services/app_log_service.dart';
 import 'services/crash_reporting_service.dart';
 import 'services/image_generation_notification_service.dart';
 import 'services/phone_action_service.dart';
+import 'services/voice_service.dart';
 import 'core/constants.dart';
 
 void main() {
@@ -70,6 +71,10 @@ void main() {
       Get.put(InferenceService());
       await Get.putAsync(() => ExecuTorchService().init());
       await Get.putAsync(() => PhoneActionService().init());
+      final voiceService = await Get.putAsync(() => VoiceService().init());
+      // Sync persisted voice settings into the VoiceService
+      voiceService.ttsEnabled.value = settingsController.ttsEnabled.value;
+      voiceService.wakeWordEnabled.value = settingsController.wakeWordEnabled.value;
       Get.put(CloudService());
       Get.put(McpService());
       await Get.putAsync(() => RagService().init());

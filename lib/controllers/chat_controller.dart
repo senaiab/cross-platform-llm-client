@@ -26,6 +26,7 @@ import '../services/image_generation_notification_service.dart';
 import '../services/document_extractor_service.dart';
 import '../services/tool_calling_service.dart';
 import '../services/reasoning_service.dart';
+import '../services/voice_service.dart';
 import '../utils/thought_parser.dart';
 import '../widgets/tool_approval_dialog.dart';
 
@@ -125,6 +126,16 @@ class ChatController extends GetxController {
       );
     } catch (_) {
       sttAvailable.value = false;
+    }
+    // Wire wake word to trigger mic listening
+    final voiceSvc = Get.isRegistered<VoiceService>() ? Get.find<VoiceService>() : null;
+    if (voiceSvc != null) {
+      voiceSvc.onWakeWordDetected = () {
+        toggleListening();
+      };
+      if (voiceSvc.wakeWordEnabled.value) {
+        voiceSvc.startWakeWord();
+      }
     }
   }
 
@@ -846,6 +857,11 @@ class ChatController extends GetxController {
       messages.add(aiMsg);
       _hive.saveMessage(aiMsg.id, aiMsg.toMap());
       imageGenStartTime.value = null;
+
+      // Speak the AI response via TTS if enabled
+      if (outImageBase64 == null && Get.isRegistered<VoiceService>()) {
+        Get.find<VoiceService>().speak(rawResponse);
+      }
 
       // Update session
       final session = sessions.firstWhereOrNull(

@@ -14,6 +14,7 @@ import android.os.Environment
 import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.net.HttpURLConnection
@@ -200,6 +201,21 @@ class MainActivity : FlutterActivity() {
         setupTermuxBridge(flutterEngine)
         setupExecuTorchBridge(flutterEngine)
         PhoneActionBridge(applicationContext, flutterEngine)
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, VoiceBridge.METHOD_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                VoiceBridge.handleMethod(call, result, this)
+            }
+
+        EventChannel(flutterEngine.dartExecutor.binaryMessenger, VoiceBridge.EVENT_CHANNEL)
+            .setStreamHandler(object : EventChannel.StreamHandler {
+                override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
+                    VoiceBridge.setEventSink(events)
+                }
+                override fun onCancel(arguments: Any?) {
+                    VoiceBridge.setEventSink(null)
+                }
+            })
     }
 
     private fun setupExecuTorchBridge(flutterEngine: FlutterEngine) {
